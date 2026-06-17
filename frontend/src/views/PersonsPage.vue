@@ -475,7 +475,7 @@ const loadRelationships = async () => {
 
 const changeStatus = async (status) => {
   try {
-    await personsApi.update(currentPerson.value.id, { status })
+    await personsApi.patch(currentPerson.value.id, { status })
     ElMessage.success('状态已更新')
     currentPerson.value.status = status
     loadData()

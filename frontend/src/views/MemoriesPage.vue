@@ -324,6 +324,7 @@ const submitMemory = async () => {
       res = await memApi.create(submitData)
     }
     ElMessage.success(editingMemory.value ? '回忆已更新' : '回忆已保存')
+    await loadData()
   } catch (e) {
     const related_photos_detail = allPhotos.value.filter(p => linkedPhotos.value.includes(p.id))
     const related_people_detail = allPersons.value.filter(p => linkedPersons.value.includes(p.id))
