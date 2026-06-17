@@ -311,12 +311,17 @@ const submitMemory = async () => {
     ElMessage.warning('请填写标题和内容')
     return
   }
+  const submitData = {
+    ...memoryForm.value,
+    related_photos: linkedPhotos.value,
+    related_people: linkedPersons.value
+  }
   try {
     let res
     if (editingMemory.value) {
-      res = await memApi.update(editingMemory.value.id, memoryForm.value)
+      res = await memApi.update(editingMemory.value.id, submitData)
     } else {
-      res = await memApi.create(memoryForm.value)
+      res = await memApi.create(submitData)
     }
     ElMessage.success(editingMemory.value ? '回忆已更新' : '回忆已保存')
   } catch (e) {

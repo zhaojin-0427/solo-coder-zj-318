@@ -457,6 +457,8 @@ const submitAddPerson = async () => {
   try {
     await photosApi.addPerson(currentPhoto.value.id, addPersonForm.value)
     ElMessage.success('人物标注已添加！')
+    const detail = await photosApi.get(currentPhoto.value.id)
+    currentPhoto.value = detail
   } catch (e) {
     const newPip = {
       id: Date.now(),

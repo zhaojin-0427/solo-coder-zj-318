@@ -125,6 +125,12 @@ class PhotoSimpleSerializer(serializers.ModelSerializer):
 class MemoryFragmentSerializer(serializers.ModelSerializer):
     related_photos_detail = PhotoSimpleSerializer(source='related_photos', many=True, read_only=True)
     related_people_detail = PersonSimpleSerializer(source='related_people', many=True, read_only=True)
+    related_photos = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Photo.objects.all(), required=False, allow_empty=True
+    )
+    related_people = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Person.objects.all(), required=False, allow_empty=True
+    )
     status_display = serializers.CharField(source='get_status_display', read_only=True)
 
     class Meta:

@@ -138,7 +138,7 @@ class Photo(models.Model):
     ]
 
     title = models.CharField('照片标题', max_length=200, blank=True)
-    image = models.ImageField('照片文件', upload_to='photos/')
+    image = models.ImageField('照片文件', upload_to='photos/', blank=True, null=True)
     era = models.CharField('年代', max_length=20, choices=ERA_CHOICES, default='unknown')
     scene = models.CharField('场景', max_length=30, choices=SCENE_CHOICES, default='other')
     source = models.CharField('来源', max_length=30, choices=SOURCE_CHOICES, default='old_album')
