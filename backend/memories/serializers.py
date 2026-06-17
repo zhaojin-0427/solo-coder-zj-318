@@ -169,3 +169,67 @@ class StatsSerializer(serializers.Serializer):
     era_coverage = serializers.ListField()
     top_persons = serializers.ListField()
     annotation_completion = serializers.DictField()
+    clue_stats = serializers.DictField()
+
+
+class CluePhotoSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Photo
+        fields = ['id', 'title', 'image', 'image_url', 'era', 'taken_year', 'scene']
+
+    def get_image_url(self, obj):
+        if obj.image:
+            try:
+                return obj.image.url
+            except ValueError:
+                return None
+        return None
+
+
+class ClueItemSerializer(serializers.ModelSerializer):
+    photo_detail = CluePhotoSerializer(source='photo', read_only=True)
+
+    class Meta:
+        model = PersonInPhoto
+        fields = ['id', 'photo', 'photo_detail', 'position_note', 'old_title', 'role_note', 'added_by', 'created_at']
+
+
+class ClueSerializer(serializers.Serializer):
+    clue_name = serializers.CharField()
+    clue_key = serializers.CharField()
+    count = serializers.IntegerField()
+    items = ClueItemSerializer(many=True)
+    first_seen = serializers.DateTimeField()
+    last_seen = serializers.DateTimeField()
+    position_notes = serializers.ListField()
+    old_titles = serializers.ListField()
+
+
+class ClaimClueSerializer(serializers.Serializer):
+    clue_key = serializers.CharField(required=False)
+    clue_keys = serializers.ListField(required=False, child=serializers.CharField())
+    mode = serializers.ChoiceField(choices=['existing', 'new'])
+    person_id = serializers.IntegerField(required=False, allow_null=True)
+    person_data = serializers.DictField(required=False)
+    add_as_alias = serializers.BooleanField(default=True)
+    claimed_by = serializers.CharField(default='家属')
+
+    def validate(self, data):
+        if not data.get('clue_key') and not data.get('clue_keys'):
+            raise serializers.ValidationError('clue_key 或 clue_keys 必须提供一个')
+        if data['mode'] == 'existing' and not data.get('person_id'):
+            raise serializers.ValidationError('认领已有人物时必须提供 person_id')
+        if data['mode'] == 'new' and not data.get('person_data'):
+            raise serializers.ValidationError('认领新建人物时必须提供 person_data')
+        return data
+
+
+class ClaimResultSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    person_id = serializers.IntegerField()
+    person_name = serializers.CharField()
+    claimed_count = serializers.IntegerField()
+    updated_photos = serializers.ListField()
+    message = serializers.CharField()

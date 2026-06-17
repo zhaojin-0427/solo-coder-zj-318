@@ -1,10 +1,12 @@
+import hashlib
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.db.models import Count, Q, IntegerField
+from django.db.models import Count, Q, IntegerField, Min, Max
 from django.db.models.functions import Coalesce
 from django_filters.rest_framework import DjangoFilterBackend
+from django.utils import timezone
 from .models import (
     Person, Alias, MigrationInfo, Relationship, Photo,
     PersonInPhoto, MemoryFragment, ConflictVersion, FamilyConfirmation
@@ -14,7 +16,8 @@ from .serializers import (
     RelationshipSerializer, PhotoSerializer, PersonInPhotoSerializer,
     MemoryFragmentSerializer, ConflictVersionSerializer,
     FamilyConfirmationSerializer, StatsSerializer, PersonSimpleSerializer,
-    PhotoSimpleSerializer
+    PhotoSimpleSerializer, ClueSerializer, ClaimClueSerializer,
+    ClaimResultSerializer
 )
 from .filters import PhotoFilter, PersonFilter
 
@@ -201,6 +204,267 @@ class FamilyConfirmationViewSet(viewsets.ModelViewSet):
         return Response({'status': 'voted', 'approve': conf.vote_approve, 'reject': conf.vote_reject})
 
 
+def _normalize_name(name):
+    if not name:
+        return ''
+    name = name.strip()
+    name = name.replace('（', '(').replace('）', ')')
+    if '(' in name:
+        name = name.split('(')[0].strip()
+    return name
+
+
+def _get_clue_key(name):
+    normalized = _normalize_name(name)
+    if not normalized:
+        return None
+    return hashlib.md5(normalized.encode('utf-8')).hexdigest()
+
+
+def _aggregate_clues(pip_qs):
+    unconfirmed_pips = pip_qs.filter(
+        person__isnull=True,
+        person_name_override__isnull=False
+    ).exclude(person_name_override='')
+
+    clues_dict = {}
+    for pip in unconfirmed_pips:
+        clue_name = _normalize_name(pip.person_name_override)
+        if not clue_name:
+            continue
+        clue_key = _get_clue_key(clue_name)
+        if clue_key not in clues_dict:
+            clues_dict[clue_key] = {
+                'clue_name': clue_name,
+                'clue_key': clue_key,
+                'count': 0,
+                'items': [],
+                'first_seen': pip.created_at,
+                'last_seen': pip.created_at,
+                'position_notes': set(),
+                'old_titles': set(),
+            }
+        clues_dict[clue_key]['count'] += 1
+        clues_dict[clue_key]['items'].append(pip)
+        if pip.created_at < clues_dict[clue_key]['first_seen']:
+            clues_dict[clue_key]['first_seen'] = pip.created_at
+        if pip.created_at > clues_dict[clue_key]['last_seen']:
+            clues_dict[clue_key]['last_seen'] = pip.created_at
+        if pip.position_note:
+            clues_dict[clue_key]['position_notes'].add(pip.position_note)
+        if pip.old_title:
+            clues_dict[clue_key]['old_titles'].add(pip.old_title)
+
+    for key in clues_dict:
+        clues_dict[key]['position_notes'] = list(clues_dict[key]['position_notes'])
+        clues_dict[key]['old_titles'] = list(clues_dict[key]['old_titles'])
+
+    return list(clues_dict.values())
+
+
+class CluesView(APIView):
+    def get(self, request):
+        search = request.query_params.get('search', '')
+        sort_by = request.query_params.get('sort_by', 'count')
+        sort_order = request.query_params.get('sort_order', 'desc')
+
+        pip_qs = PersonInPhoto.objects.select_related('photo')
+
+        if search:
+            pip_qs = pip_qs.filter(
+                Q(person_name_override__icontains=search) |
+                Q(position_note__icontains=search) |
+                Q(old_title__icontains=search) |
+                Q(photo__title__icontains=search)
+            )
+
+        clues = _aggregate_clues(pip_qs)
+
+        if sort_by == 'count':
+            clues.sort(key=lambda x: x['count'], reverse=(sort_order == 'desc'))
+        elif sort_by == 'name':
+            clues.sort(key=lambda x: x['clue_name'], reverse=(sort_order == 'desc'))
+        elif sort_by == 'last_seen':
+            clues.sort(key=lambda x: x['last_seen'], reverse=(sort_order == 'desc'))
+
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated = clues[start:end]
+
+        serializer = ClueSerializer(paginated, many=True)
+        return Response({
+            'count': len(clues),
+            'next': None if end >= len(clues) else f'?page={page + 1}',
+            'previous': None if page <= 1 else f'?page={page - 1}',
+            'results': serializer.data
+        })
+
+
+class ClueDetailView(APIView):
+    def get(self, request, clue_key):
+        pip_qs = PersonInPhoto.objects.select_related('photo')
+        all_clues = _aggregate_clues(pip_qs)
+        clue = next((c for c in all_clues if c['clue_key'] == clue_key), None)
+        if not clue:
+            return Response({'error': '线索不存在'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ClueSerializer(clue)
+        return Response(serializer.data)
+
+
+class ClaimClueView(APIView):
+    def post(self, request):
+        serializer = ClaimClueSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        mode = data['mode']
+        claimed_by = data.get('claimed_by', '家属')
+        add_as_alias = data.get('add_as_alias', True)
+
+        clue_keys = []
+        if data.get('clue_key'):
+            clue_keys.append(data['clue_key'])
+        if data.get('clue_keys'):
+            clue_keys.extend(data['clue_keys'])
+
+        person = None
+        created_person = False
+
+        if mode == 'existing':
+            try:
+                person = Person.objects.get(id=data['person_id'])
+            except Person.DoesNotExist:
+                return Response({'error': '人物不存在'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            person_data = data['person_data']
+            name = person_data.get('name', '')
+            if not name:
+                return Response({'error': '新建人物必须提供姓名'}, status=status.HTTP_400_BAD_REQUEST)
+
+            existing = Person.objects.filter(name=name).first()
+            if existing:
+                person = existing
+            else:
+                person = Person.objects.create(
+                    name=name,
+                    gender=person_data.get('gender', 'U'),
+                    birth_year=person_data.get('birth_year'),
+                    death_year=person_data.get('death_year'),
+                    birth_place=person_data.get('birth_place', ''),
+                    description=person_data.get('description', ''),
+                    status='pending',
+                    created_by=claimed_by
+                )
+                created_person = True
+
+        pip_qs = PersonInPhoto.objects.select_related('photo')
+        all_clues = _aggregate_clues(pip_qs)
+
+        target_pips = []
+        clue_names_for_alias = []
+        for ck in clue_keys:
+            clue = next((c for c in all_clues if c['clue_key'] == ck), None)
+            if clue:
+                target_pips.extend(clue['items'])
+                clue_names_for_alias.append(clue['clue_name'])
+
+        if not target_pips:
+            return Response(
+                {'error': '未找到待认领的线索', 'success': False},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        updated_photo_ids = []
+        claimed_count = 0
+
+        for pip in target_pips:
+            if pip.person_id == person.id:
+                continue
+            pip.person = person
+            pip.save()
+            claimed_count += 1
+            if pip.photo_id not in updated_photo_ids:
+                updated_photo_ids.append(pip.photo_id)
+
+        if add_as_alias and mode == 'existing':
+            for alias_name in clue_names_for_alias:
+                if alias_name and alias_name != person.name:
+                    existing_alias = Alias.objects.filter(
+                        person=person, alias_name=alias_name
+                    ).first()
+                    if not existing_alias:
+                        Alias.objects.create(
+                            person=person,
+                            alias_name=alias_name,
+                            usage_context='线索认领自动添加',
+                            added_by=claimed_by
+                        )
+
+        for photo_id in updated_photo_ids:
+            try:
+                photo = Photo.objects.get(id=photo_id)
+                unconfirmed_count = PersonInPhoto.objects.filter(
+                    photo=photo, person__isnull=True
+                ).exclude(person_name_override='').count()
+                if unconfirmed_count == 0:
+                    if photo.status == 'annotating':
+                        photo.status = 'completed'
+                        photo.save()
+                else:
+                    if photo.status == 'archived':
+                        photo.status = 'annotating'
+                        photo.save()
+            except Photo.DoesNotExist:
+                pass
+
+        result = {
+            'success': True,
+            'person_id': person.id,
+            'person_name': person.name,
+            'claimed_count': claimed_count,
+            'updated_photos': updated_photo_ids,
+            'message': f'成功认领 {claimed_count} 条线索，关联到人物「{person.name}」',
+            'created_person': created_person
+        }
+        return Response(result)
+
+
+class ClueStatsView(APIView):
+    def get(self, request):
+        pip_qs = PersonInPhoto.objects.all()
+        unconfirmed_pips = pip_qs.filter(
+            person__isnull=True
+        ).exclude(person_name_override='')
+        unconfirmed_total = unconfirmed_pips.count()
+
+        clues = _aggregate_clues(pip_qs)
+        total_clues = len(clues)
+
+        photo_ids_with_clues = unconfirmed_pips.values_list('photo_id', flat=True).distinct()
+        photos_with_clues = len(photo_ids_with_clues)
+
+        multi_photo_clues = sum(1 for c in clues if c['count'] > 1)
+        single_photo_clues = sum(1 for c in clues if c['count'] == 1)
+
+        top_clues = sorted(clues, key=lambda x: x['count'], reverse=True)[:10]
+        top_clues_simple = [
+            {'clue_name': c['clue_name'], 'clue_key': c['clue_key'], 'count': c['count']}
+            for c in top_clues
+        ]
+
+        return Response({
+            'total_clues': total_clues,
+            'unconfirmed_annotations': unconfirmed_total,
+            'photos_with_clues': photos_with_clues,
+            'multi_photo_clues': multi_photo_clues,
+            'single_photo_clues': single_photo_clues,
+            'top_clues': top_clues_simple,
+        })
+
+
 class StatsView(APIView):
     def get(self, request):
         total_photos = Photo.objects.count()
@@ -240,6 +504,27 @@ class StatsView(APIView):
             'memories': {'draft': draft_mem, 'submitted': submitted_mem, 'published': published_mem, 'total': total_memories},
         }
 
+        try:
+            pip_qs = PersonInPhoto.objects.all()
+            clues = _aggregate_clues(pip_qs)
+            total_clues = len(clues)
+            unconfirmed_total = total_pip - confirmed_pip
+            multi_photo_clues = sum(1 for c in clues if c['count'] > 1)
+
+            clue_stats = {
+                'total_clues': total_clues,
+                'unconfirmed_annotations': unconfirmed_total,
+                'multi_photo_clues': multi_photo_clues,
+                'single_photo_clues': total_clues - multi_photo_clues,
+            }
+        except Exception as e:
+            clue_stats = {
+                'total_clues': 0,
+                'unconfirmed_annotations': 0,
+                'multi_photo_clues': 0,
+                'single_photo_clues': 0,
+            }
+
         data = {
             'total_photos': total_photos,
             'total_persons': total_persons,
@@ -250,6 +535,7 @@ class StatsView(APIView):
             'era_coverage': era_coverage,
             'top_persons': top_persons,
             'annotation_completion': annotation_completion,
+            'clue_stats': clue_stats,
         }
         serializer = StatsSerializer(data)
         return Response(serializer.data)

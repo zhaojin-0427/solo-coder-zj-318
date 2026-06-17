@@ -39,6 +39,12 @@
         <div class="stat-label">参与家属人数</div>
         <div class="stat-trend">共3代共同编撰</div>
       </div>
+      <div class="stat-card" style="background: linear-gradient(135deg, #D2691E, #F4A460);">
+        <div class="stat-icon">🔍</div>
+        <div class="stat-value">{{ stats?.clue_stats?.total_clues || 0 }}</div>
+        <div class="stat-label">待认领线索</div>
+        <div class="stat-trend highlight">⚠️ {{ stats?.clue_stats?.unconfirmed_annotations || 0 }} 条未确认标注</div>
+      </div>
     </div>
 
     <div class="charts-grid">
@@ -123,6 +129,16 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="chart-card card-warm">
+        <div class="chart-header">
+          <h3><el-icon><Search /></el-icon> 线索认领分析</h3>
+          <el-tag size="small" effect="light">共 {{ stats?.clue_stats?.total_clues || 0 }} 条线索</el-tag>
+        </div>
+        <div class="chart-body">
+          <div ref="clueChart" class="chart-canvas" style="height: 280px;"></div>
         </div>
       </div>
 
@@ -214,6 +230,15 @@
             </div>
           </div>
         </el-col>
+        <el-col :span="8">
+          <div class="legend-item">
+            <el-icon color="#D2691E" size="20"><Search /></el-icon>
+            <div>
+              <b>线索认领进度</b>
+              <p>{{ stats?.clue_stats?.total_clues || 0 }} 条待认领线索，{{ stats?.clue_stats?.multi_photo_clues || 0 }} 条跨照片线索</p>
+            </div>
+          </div>
+        </el-col>
       </el-row>
     </div>
   </div>
@@ -223,7 +248,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { stats as statsApi } from '@/api'
 import {
-  DataAnalysis, Picture, UserFilled, TrendCharts, Connection, Warning, CircleCheckFilled
+  DataAnalysis, Picture, UserFilled, TrendCharts, Connection, Warning, CircleCheckFilled, Search
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
@@ -231,8 +256,10 @@ const loading = ref(false)
 const stats = ref(null)
 const eraChart = ref(null)
 const topChart = ref(null)
+const clueChart = ref(null)
 let eraChartInstance = null
 let topChartInstance = null
+let clueChartInstance = null
 
 const familyMemberCount = 8
 
@@ -273,6 +300,12 @@ const defaultStats = () => ({
     photos: { archived: 89, annotating: 65, completed: 94, total: 248 },
     persons_in_photos: { confirmed: 148, unconfirmed: 32, total: 180 },
     memories: { draft: 10, submitted: 15, published: 37, total: 62 }
+  },
+  clue_stats: {
+    total_clues: 12,
+    unconfirmed_annotations: 32,
+    multi_photo_clues: 5,
+    single_photo_clues: 7
   }
 })
 
@@ -358,6 +391,7 @@ const loadData = async () => {
     await nextTick()
     renderEraChart()
     renderTopChart()
+    renderClueChart()
   }
 }
 
@@ -429,15 +463,97 @@ const renderTopChart = () => {
   topChartInstance.setOption(option)
 }
 
+const renderClueChart = () => {
+  if (!clueChart.value) return
+  if (clueChartInstance) clueChartInstance.dispose()
+  clueChartInstance = echarts.init(clueChart.value)
+
+  const clueStats = stats.value?.clue_stats || {}
+  const total = clueStats.total_clues || 0
+  const multi = clueStats.multi_photo_clues || 0
+  const single = clueStats.single_photo_clues || 0
+  const unconfirmed = clueStats.unconfirmed_annotations || 0
+
+  const data = [
+    { value: multi, name: '跨照片线索', itemStyle: { color: '#D2691E' } },
+    { value: single, name: '单照片线索', itemStyle: { color: '#F4A460' } },
+  ]
+
+  const option = {
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c} 条 ({d}%)'
+    },
+    legend: {
+      orient: 'vertical',
+      right: '5%',
+      top: 'center',
+      textStyle: { color: '#5D4E3A', fontSize: 12 }
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['45%', '70%'],
+        center: ['35%', '50%'],
+        avoidLabelOverlap: false,
+        itemStyle: {
+          borderRadius: 8,
+          borderColor: '#fff',
+          borderWidth: 2
+        },
+        label: {
+          show: true,
+          position: 'center',
+          formatter: [
+            '{total|' + total + '}',
+            '{sub|条线索}'
+          ].join('\n'),
+          rich: {
+            total: {
+              fontSize: 28,
+              fontWeight: 'bold',
+              color: '#8B4513',
+              lineHeight: 36
+            },
+            sub: {
+              fontSize: 13,
+              color: '#8B7355'
+            }
+          }
+        },
+        emphasis: {
+          label: { show: true }
+        },
+        data: data
+      }
+    ],
+    graphic: [
+      {
+        type: 'text',
+        left: 'center',
+        bottom: 10,
+        style: {
+          text: `未确认标注共 ${unconfirmed} 条`,
+          fill: '#8B7355',
+          fontSize: 12
+        }
+      }
+    ]
+  }
+  clueChartInstance.setOption(option)
+}
+
 const handleResize = () => {
   eraChartInstance?.resize()
   topChartInstance?.resize()
+  clueChartInstance?.resize()
 }
 
 watch(() => stats.value, () => {
   nextTick(() => {
     renderEraChart()
     renderTopChart()
+    renderClueChart()
   })
 })
 

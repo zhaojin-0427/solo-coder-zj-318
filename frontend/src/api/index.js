@@ -103,4 +103,11 @@ export const stats = {
   get: () => api.get('/stats/')
 }
 
+export const clues = {
+  list: (params = {}) => api.get('/clues/', { params }),
+  get: (clueKey) => api.get(`/clues/${clueKey}/`),
+  claim: (data) => api.post('/clues/claim/', data),
+  stats: () => api.get('/clues/stats/')
+}
+
 export default api
