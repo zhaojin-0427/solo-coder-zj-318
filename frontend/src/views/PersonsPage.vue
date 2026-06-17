@@ -186,18 +186,29 @@
               <el-empty v-else description="尚未建立亲属关系" />
             </el-tab-pane>
 
-            <el-tab-pane :label="`照片档案 (${currentPerson.photo_count || 0})`" name="photos">
-              <div class="photo-archive-grid">
-                <div v-for="i in (currentPerson.photo_count || 3)" :key="i" class="archive-photo">
-                  <div class="archive-photo-thumb">📷</div>
+            <el-tab-pane :label="`照片档案 (${personPhotos.length})`" name="photos">
+              <div class="photo-archive-grid" v-if="personPhotos.length">
+                <div
+                  v-for="photo in personPhotos"
+                  :key="photo.id"
+                  class="archive-photo"
+                >
+                  <div class="archive-photo-thumb">
+                    <img :src="getImageSrc(photo)" v-if="photo.image" />
+                    <span class="photo-emoji" v-else>{{ photoPlaceholder(photo.era, photo.scene) }}</span>
+                  </div>
                   <div class="archive-photo-info">
-                    <div class="archive-photo-title">关联照片 #{{ i }}</div>
-                    <div class="archive-photo-meta">19{{ 50 + i * 5 }}年·场景{{ i }}</div>
+                    <div class="archive-photo-title">{{ photo.title || '未命名照片' }}</div>
+                    <div class="archive-photo-meta">
+                      <el-tag size="small" effect="plain">{{ getOptionLabel(ERA_OPTIONS, photo.era) }}</el-tag>
+                      <el-tag size="small" effect="plain" style="margin-left: 4px;">{{ getOptionLabel(SCENE_OPTIONS, photo.scene) }}</el-tag>
+                      <span v-if="photo.taken_year" style="margin-left: 6px;">{{ photo.taken_year }}年</span>
+                    </div>
                   </div>
                 </div>
-                <div v-if="!currentPerson.photo_count" class="empty-photo">
-                  <el-empty description="暂未关联照片，去照片页标注此人物" />
-                </div>
+              </div>
+              <div v-else class="empty-photo">
+                <el-empty description="暂未关联照片，去照片页标注此人物" />
               </div>
             </el-tab-pane>
           </el-tabs>
@@ -338,8 +349,8 @@ import { ElMessage } from 'element-plus'
 import {
   User, Search, Plus, UserFilled, Location, Edit, Link, ArrowDown, Right
 } from '@element-plus/icons-vue'
-import { persons as personsApi, relationships as relApi, aliases as aliasApi, migrations as migApi } from '@/api'
-import { RELATION_OPTIONS, STATUS_OPTIONS, getOptionLabel } from '@/store'
+import { persons as personsApi, relationships as relApi, aliases as aliasApi, migrations as migApi, personInPhoto as pipApi, photos as photosApi } from '@/api'
+import { RELATION_OPTIONS, STATUS_OPTIONS, ERA_OPTIONS, SCENE_OPTIONS, getOptionLabel, photoPlaceholder } from '@/store'
 
 const loading = ref(false)
 const personList = ref([])
@@ -348,6 +359,7 @@ const statusTab = ref('')
 const currentPerson = ref(null)
 const detailTab = ref('alias')
 const relationships = ref([])
+const personPhotos = ref([])
 
 const showAddPerson = ref(false)
 const showEditPerson = ref(false)
@@ -401,6 +413,32 @@ const getOtherPerson = (r) => {
 
 const getRelationLabel = () => getOptionLabel(RELATION_OPTIONS, relationForm.value.relation_type)
 
+const getImageSrc = (photo) => {
+  if (!photo.image) return ''
+  if (typeof photo.image === 'string' && photo.image.startsWith('http')) return photo.image
+  if (typeof photo.image === 'string' && photo.image.startsWith('/media')) return photo.image
+  if (typeof photo.image === 'string') return '/media/' + photo.image
+  return ''
+}
+
+const loadPersonPhotos = async () => {
+  if (!currentPerson.value) { personPhotos.value = []; return }
+  try {
+    const pipRes = await pipApi.list({ person: currentPerson.value.id })
+    const pipList = pipRes.results || pipRes || []
+    if (!pipList.length) { personPhotos.value = mockPersonPhotos(currentPerson.value.id); return }
+    const photoIds = pipList.map(p => p.photo).filter(Boolean)
+    if (!photoIds.length) { personPhotos.value = []; return }
+    const photoPromises = photoIds.map(id =>
+      photosApi.get(id).catch(() => null)
+    )
+    const results = await Promise.all(photoPromises)
+    personPhotos.value = results.filter(Boolean)
+  } catch (e) {
+    personPhotos.value = mockPersonPhotos(currentPerson.value.id)
+  }
+}
+
 const loadData = async () => {
   loading.value = true
   try {
@@ -421,6 +459,7 @@ const selectPerson = async (p) => {
     currentPerson.value = enrichPerson(p)
   }
   loadRelationships()
+  loadPersonPhotos()
   detailTab.value = 'alias'
 }
 
@@ -588,6 +627,31 @@ function mockRelations(personId) {
     ]
   }
   return rels[personId] || []
+}
+
+function mockPersonPhotos(personId) {
+  const mockPhotoData = [
+    { id: 1, title: '1952年父亲参军留影', image: null, era: '1950s', scene: 'military', taken_year: 1952 },
+    { id: 2, title: '1968年春节全家福', image: null, era: '1960s', scene: 'family_portrait', taken_year: 1968 },
+    { id: 3, title: '母亲年轻时的工作照', image: null, era: '1970s', scene: 'work_school', taken_year: 1975 },
+    { id: 4, title: '1985年大哥结婚', image: null, era: '1980s', scene: 'wedding', taken_year: 1985 },
+    { id: 5, title: '90年代初第一次去北京', image: null, era: '1990s', scene: 'travel', taken_year: 1992 },
+    { id: 6, title: '2005年家族大聚会', image: null, era: '2000s', scene: 'festival', taken_year: 2005 },
+    { id: 7, title: '我小时候和外公', image: null, era: '1990s', scene: 'childhood', taken_year: 1995 },
+    { id: 9, title: '奶奶少女时代', image: null, era: '1930s', scene: 'daily_life', taken_year: 1938 }
+  ]
+  const photoMap = {
+    1: [2, 5, 6, 9],
+    2: [2, 5, 6, 9],
+    3: [1, 2, 4, 5, 6, 7],
+    4: [2, 6],
+    5: [2],
+    6: [4, 6],
+    7: [4, 5, 6, 7],
+    8: [10]
+  }
+  const ids = photoMap[personId] || []
+  return mockPhotoData.filter(p => ids.includes(p.id))
 }
 </script>
 
@@ -847,6 +911,18 @@ function mockRelations(personId) {
   align-items: center;
   justify-content: center;
   font-size: 48px;
+  overflow: hidden;
+}
+
+.archive-photo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.archive-photo-thumb .photo-emoji {
+  font-size: 60px;
+  opacity: 0.6;
 }
 
 .archive-photo-info { padding: 10px 12px; }

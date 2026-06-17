@@ -204,7 +204,7 @@
       </div>
       <template #footer>
         <el-button @click="showDetail = false">关闭</el-button>
-        <el-button type="primary" class="btn-primary-warm">编辑照片信息</el-button>
+        <el-button type="primary" class="btn-primary-warm" @click="openEditPhoto">编辑照片信息</el-button>
       </template>
     </el-dialog>
 
@@ -236,6 +236,52 @@
         <el-button type="primary" class="btn-primary-warm" @click="submitAddPerson">添加标注</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showEditPhoto" title="编辑照片信息" width="560px" destroy-on-close>
+      <el-form :model="editPhotoForm" label-width="100px">
+        <el-form-item label="照片标题">
+          <el-input v-model="editPhotoForm.title" placeholder="如：1985年春节全家福" />
+        </el-form-item>
+        <el-form-item label="拍摄年代">
+          <el-select v-model="editPhotoForm.era" style="width: 100%">
+            <el-option v-for="era in ERA_OPTIONS" :key="era.value" :label="era.label" :value="era.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="照片场景">
+          <el-select v-model="editPhotoForm.scene" style="width: 100%">
+            <el-option v-for="s in SCENE_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="照片来源">
+          <el-select v-model="editPhotoForm.source" style="width: 100%">
+            <el-option v-for="s in SOURCE_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="拍摄年份">
+          <el-input-number v-model="editPhotoForm.taken_year" :min="1900" :max="2030" placeholder="选填" />
+        </el-form-item>
+        <el-form-item label="拍摄地点">
+          <el-input v-model="editPhotoForm.location" placeholder="如：北京西城区老宅院" />
+        </el-form-item>
+        <el-form-item label="事件背景">
+          <el-input
+            v-model="editPhotoForm.description"
+            type="textarea"
+            :rows="3"
+            placeholder="老人口述：当时是爷爷六十大寿，全家从各地赶回来..."
+          />
+        </el-form-item>
+        <el-form-item label="补注状态">
+          <el-select v-model="editPhotoForm.status" style="width: 100%">
+            <el-option v-for="s in PHOTO_STATUS_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showEditPhoto = false">取消</el-button>
+        <el-button type="primary" class="btn-primary-warm" @click="submitEditPhoto">保存修改</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -263,6 +309,7 @@ const filterStatus = ref('')
 const showUpload = ref(false)
 const showDetail = ref(false)
 const showAddPerson = ref(false)
+const showEditPhoto = ref(false)
 const currentPhoto = ref(null)
 
 const uploadForm = ref({
@@ -274,6 +321,11 @@ const uploadFile = ref(null)
 const addPersonForm = ref({
   person: null, person_name_override: '', position_note: '',
   old_title: '', role_note: '', added_by: ''
+})
+
+const editPhotoForm = ref({
+  title: '', era: 'unknown', scene: 'other', source: 'old_album',
+  taken_year: null, location: '', description: '', status: 'archived'
 })
 
 const getImageSrc = (photo) => {
@@ -317,13 +369,11 @@ const filteredPhotos = computed(() => {
 })
 
 const groupedPhotos = computed(() => {
-  const groups = ERA_OPTIONS.map(era => ({
+  return ERA_OPTIONS.map(era => ({
     era: era.value,
     label: era.label,
     photos: filteredPhotos.value.filter(p => p.era === era.value)
-  }))
-  const unknown = { era: 'unknown', label: '年代不详', photos: filteredPhotos.value.filter(p => p.era === 'unknown') }
-  return [...groups, unknown].filter(g => g.photos.length > 0)
+  })).filter(g => g.photos.length > 0)
 })
 
 const eraSummary = computed(() => {
@@ -331,7 +381,7 @@ const eraSummary = computed(() => {
     era: era.value,
     label: era.label,
     count: filteredPhotos.value.filter(p => p.era === era.value).length
-  })).concat([{ era: 'unknown', label: '年代不详', count: filteredPhotos.value.filter(p => p.era === 'unknown').length }])
+  }))
 })
 
 const loadData = async () => {
@@ -425,6 +475,34 @@ const submitAddPerson = async () => {
   }
   showAddPerson.value = false
   addPersonForm.value = { person: null, person_name_override: '', position_note: '', old_title: '', role_note: '', added_by: '' }
+}
+
+const openEditPhoto = () => {
+  if (!currentPhoto.value) return
+  editPhotoForm.value = {
+    title: currentPhoto.value.title || '',
+    era: currentPhoto.value.era || 'unknown',
+    scene: currentPhoto.value.scene || 'other',
+    source: currentPhoto.value.source || 'old_album',
+    taken_year: currentPhoto.value.taken_year || null,
+    location: currentPhoto.value.location || '',
+    description: currentPhoto.value.description || '',
+    status: currentPhoto.value.status || 'archived'
+  }
+  showEditPhoto.value = true
+}
+
+const submitEditPhoto = async () => {
+  try {
+    const res = await photosApi.update(currentPhoto.value.id, editPhotoForm.value)
+    Object.assign(currentPhoto.value, res)
+    ElMessage.success('照片信息已更新！')
+  } catch (e) {
+    Object.assign(currentPhoto.value, editPhotoForm.value)
+    ElMessage.success('照片信息已更新（模拟模式）！')
+  }
+  showEditPhoto.value = false
+  loadData()
 }
 
 onMounted(loadData)
