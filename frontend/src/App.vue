@@ -28,6 +28,8 @@
             <div class="flow-items">
               <div class="flow-item">照片整理</div>
               <div class="flow-arrow">→</div>
+              <div class="flow-item">线索认领</div>
+              <div class="flow-arrow">→</div>
               <div class="flow-item">人物补注</div>
               <div class="flow-arrow">→</div>
               <div class="flow-item">故事沉淀</div>

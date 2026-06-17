@@ -21,8 +21,8 @@ router.register(r'confirmations', FamilyConfirmationViewSet)
 urlpatterns = [
     path('', include(router.urls)),
     path('stats/', StatsView.as_view(), name='stats'),
-    path('clues/', CluesView.as_view(), name='clues'),
     path('clues/stats/', ClueStatsView.as_view(), name='clue-stats'),
-    path('clues/<str:clue_key>/', ClueDetailView.as_view(), name='clue-detail'),
     path('clues/claim/', ClaimClueView.as_view(), name='claim-clue'),
+    path('clues/', CluesView.as_view(), name='clues'),
+    path('clues/<str:clue_key>/', ClueDetailView.as_view(), name='clue-detail'),
 ]

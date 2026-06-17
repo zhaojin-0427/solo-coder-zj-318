@@ -148,54 +148,66 @@
         </div>
         <div class="chart-body">
           <div class="flow-overview">
-            <div class="flow-node" style="background: linear-gradient(135deg, #667EEA, #764BA2);">
-              <div class="flow-node-icon">📷</div>
-              <div class="flow-node-title">照片整理</div>
-              <div class="flow-node-num">{{ stats?.total_photos || 0 }}张已归档</div>
-              <div class="flow-node-progress">
-                <div class="fn-bar">
-                  <div class="fn-fill" style="width: 60%;"></div>
+              <div class="flow-node" style="background: linear-gradient(135deg, #667EEA, #764BA2);">
+                <div class="flow-node-icon">📷</div>
+                <div class="flow-node-title">照片整理</div>
+                <div class="flow-node-num">{{ stats?.total_photos || 0 }}张已归档</div>
+                <div class="flow-node-progress">
+                  <div class="fn-bar">
+                    <div class="fn-fill" style="width: 60%;"></div>
+                  </div>
+                  <span>{{ photoPct }}% 已补注</span>
                 </div>
-                <span>{{ photoPct }}% 已补注</span>
+              </div>
+              <div class="flow-arrow-icon">→</div>
+              <div class="flow-node" style="background: linear-gradient(135deg, #F59E0B, #D97706);">
+                <div class="flow-node-icon">🔍</div>
+                <div class="flow-node-title">线索认领</div>
+                <div class="flow-node-num">{{ stats?.clue_stats?.total_clues || 0 }}条待认领</div>
+                <div class="flow-node-progress">
+                  <div class="fn-bar">
+                    <div class="fn-fill" :style="{ width: cluePct + '%' }"></div>
+                  </div>
+                  <span>{{ cluePct }}% 待处理</span>
+                </div>
+              </div>
+              <div class="flow-arrow-icon">→</div>
+              <div class="flow-node" style="background: linear-gradient(135deg, #F093FB, #F5576C);">
+                <div class="flow-node-icon">👥</div>
+                <div class="flow-node-title">人物补注</div>
+                <div class="flow-node-num">{{ stats?.total_persons || 0 }}人已建档</div>
+                <div class="flow-node-progress">
+                  <div class="fn-bar">
+                    <div class="fn-fill" style="width: 75%;"></div>
+                  </div>
+                  <span>{{ confirmedPersonPct }}% 已确认</span>
+                </div>
+              </div>
+              <div class="flow-arrow-icon">→</div>
+              <div class="flow-node" style="background: linear-gradient(135deg, #4FACFE, #00F2FE);">
+                <div class="flow-node-icon">📖</div>
+                <div class="flow-node-title">故事沉淀</div>
+                <div class="flow-node-num">{{ stats?.total_memories || 0 }}篇已记录</div>
+                <div class="flow-node-progress">
+                  <div class="fn-bar">
+                    <div class="fn-fill" :style="{ width: memoryPct + '%' }"></div>
+                  </div>
+                  <span>{{ memoryPct }}% 已沉淀</span>
+                </div>
+              </div>
+              <div class="flow-arrow-icon">→</div>
+              <div class="flow-node" style="background: linear-gradient(135deg, #FA709A, #FEE140);">
+                <div class="flow-node-icon">👨‍👩‍👧‍👦</div>
+                <div class="flow-node-title">家庭共编</div>
+                <div class="flow-node-num">{{ totalConfirmations }}次共识确认</div>
+                <div class="flow-node-progress">
+                  <div class="fn-bar">
+                    <div class="fn-fill" :style="{ width: familyConsensusPct + '%' }"></div>
+                  </div>
+                  <span>{{ familyConsensusPct }}% 已达共识</span>
+                </div>
               </div>
             </div>
-            <div class="flow-arrow-icon">→</div>
-            <div class="flow-node" style="background: linear-gradient(135deg, #F093FB, #F5576C);">
-              <div class="flow-node-icon">👥</div>
-              <div class="flow-node-title">人物补注</div>
-              <div class="flow-node-num">{{ stats?.total_persons || 0 }}人已建档</div>
-              <div class="flow-node-progress">
-                <div class="fn-bar">
-                  <div class="fn-fill" style="width: 75%;"></div>
-                </div>
-                <span>{{ confirmedPersonPct }}% 已确认</span>
-              </div>
-            </div>
-            <div class="flow-arrow-icon">→</div>
-            <div class="flow-node" style="background: linear-gradient(135deg, #4FACFE, #00F2FE);">
-              <div class="flow-node-icon">📖</div>
-              <div class="flow-node-title">故事沉淀</div>
-              <div class="flow-node-num">{{ stats?.total_memories || 0 }}篇已记录</div>
-              <div class="flow-node-progress">
-                <div class="fn-bar">
-                  <div class="fn-fill" style="width: {{ memoryPct }}%;"></div>
-                </div>
-                <span>{{ memoryPct }}% 已沉淀</span>
-              </div>
-            </div>
-            <div class="flow-arrow-icon">→</div>
-            <div class="flow-node" style="background: linear-gradient(135deg, #FA709A, #FEE140);">
-              <div class="flow-node-icon">👨‍👩‍👧‍👦</div>
-              <div class="flow-node-title">家庭共编</div>
-              <div class="flow-node-num">{{ totalConfirmations }}次共识确认</div>
-              <div class="flow-node-progress">
-                <div class="fn-bar">
-                  <div class="fn-fill" style="width: {{ familyConsensusPct }}%;"></div>
-                </div>
-                <span>{{ familyConsensusPct }}% 已达共识</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -358,6 +370,14 @@ const personPct = computed(() => {
   const p = stats.value?.annotation_completion?.persons_in_photos
   if (!p) return 0
   return Math.round((p.confirmed || 0) / (p.total || 1) * 100)
+})
+
+const cluePct = computed(() => {
+  const c = stats.value?.clue_stats
+  if (!c) return 0
+  const total = c.unconfirmed_annotations || 1
+  const clues = c.total_clues || 0
+  return Math.min(100, Math.round(clues / total * 100))
 })
 
 const confirmedPersonPct = computed(() => {
@@ -727,8 +747,8 @@ onMounted(() => {
 
 .flow-overview {
   display: grid;
-  grid-template-columns: 1fr 40px 1fr 40px 1fr 40px 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr 30px 1fr 30px 1fr 30px 1fr 30px 1fr;
+  gap: 6px;
   align-items: stretch;
   padding: 8px 0;
 }
