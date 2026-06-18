@@ -579,6 +579,7 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   List, Document, UserFilled, Trophy, MagicStick, Plus, Search, Refresh,
@@ -593,6 +594,7 @@ import {
   getTaskTypeInfo, getTaskStatusInfo, getOptionLabel
 } from '@/store'
 
+const route = useRoute()
 const loading = ref(false)
 const statsLoading = ref(false)
 const tasks = ref([])
@@ -604,6 +606,7 @@ const filterType = ref('')
 const filterSource = ref('')
 const filterStatus = ref('')
 const filterAssign = ref('')
+const filterRelatedId = ref('')
 const searchKey = ref('')
 const currentPage = ref(1)
 const pageSize = 10
@@ -678,6 +681,11 @@ const loadTasks = async () => {
     if (filterSource.value) params.source_type = filterSource.value
     if (filterStatus.value) params.status = filterStatus.value
     if (filterAssign.value) params.assign_type = filterAssign.value
+    if (filterRelatedId.value && filterSource.value) {
+      const fieldMap = { photo: 'related_photo', person: 'related_person', memory: 'related_memory' }
+      const field = fieldMap[filterSource.value]
+      if (field) params[field] = filterRelatedId.value
+    }
     const res = await tasksApi.list(params)
     let list = res.results || res.data || []
     if (searchKey.value) {
@@ -1039,6 +1047,11 @@ const handleResize = () => {
 }
 
 onMounted(() => {
+  const q = route.query
+  if (q.source_type) filterSource.value = String(q.source_type)
+  if (q.related_id) filterRelatedId.value = String(q.related_id)
+  if (q.task_type) filterType.value = String(q.task_type)
+  if (q.status) filterStatus.value = String(q.status)
   loadTasks()
   loadTaskStats()
   loadPersons()

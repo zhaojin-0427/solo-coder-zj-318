@@ -336,7 +336,10 @@ let contributorChartInstance = null
 let taskTypeChartInstance = null
 let topTaskPersonChartInstance = null
 
-const familyMemberCount = 8
+const familyMemberCount = computed(() => {
+  const lb = contributionStats.value?.leaderboard || []
+  return lb.length || 0
+})
 
 const defaultTaskStats = () => ({
   total: 48,
@@ -527,15 +530,50 @@ const loadData = async () => {
   loading.value = true
   try {
     const [sRes, tRes, cRes] = await Promise.all([
-      statsApi.get().catch(() => defaultStats()),
-      tasksApi.stats().catch(() => defaultTaskStats()),
-      contribApi.ranking().catch(() => defaultContributionStats())
+      statsApi.get().catch(() => null),
+      tasksApi.stats().catch(() => null),
+      contribApi.ranking().catch(() => null)
     ])
-    stats.value = sRes?.task_stats ? sRes : defaultStats()
-    taskStats.value = tRes || sRes?.task_stats || defaultTaskStats()
-    contributionStats.value = cRes || sRes?.contribution_stats || defaultContributionStats()
-    if (sRes?.task_stats && !taskStats.value?.total) taskStats.value = { ...defaultTaskStats(), ...sRes.task_stats }
-    if (sRes?.contribution_stats && !contributionStats.value?.total) contributionStats.value = { ...defaultContributionStats(), ...sRes.contribution_stats }
+    stats.value = sRes || defaultStats()
+    if (tRes) {
+      const pendingTotal = (tRes.open_tasks || 0) + (tRes.assigned_tasks || 0) + (tRes.in_progress_tasks || 0)
+      const conflictTotal = (tRes.conflicted_tasks || 0) + (tRes.completed_tasks || 0)
+      taskStats.value = {
+        total: tRes.total_tasks || 0,
+        open: tRes.open_tasks || 0,
+        assigned: tRes.assigned_tasks || 0,
+        in_progress: tRes.in_progress_tasks || 0,
+        submitted: tRes.submitted_tasks || 0,
+        completed: tRes.completed_tasks || 0,
+        rejected: tRes.rejected_tasks || 0,
+        conflicted: tRes.conflicted_tasks || 0,
+        pending_total: pendingTotal,
+        completion_rate: Math.round(tRes.completion_rate || 0),
+        conflict_to_confirm_rate: conflictTotal > 0 ? Math.round((tRes.completed_tasks || 0) / conflictTotal * 100) : 0,
+        type_distribution: (tRes.task_type_distribution || []).map(d => ({ type: d.type, count: d.count })),
+        top_persons: (tRes.top_task_persons || []).map(p => ({ id: p.person_id, name: p.name, count: p.task_count }))
+      }
+    } else if (sRes?.task_stats) {
+      taskStats.value = sRes.task_stats
+    } else {
+      taskStats.value = defaultTaskStats()
+    }
+    if (cRes) {
+      const lb = cRes.results || cRes.leaderboard || []
+      contributionStats.value = {
+        total: lb.reduce((s, d) => s + (d.count || d.task_count || 0), 0),
+        leaderboard: lb.map(d => ({
+          contributor: d.contributor,
+          count: d.count || d.task_count || 0,
+          points: d.points || d.total_points || 0
+        })),
+        my_contributions: cRes.my_contribution || { total: 0, by_type: {} }
+      }
+    } else if (sRes?.contribution_stats) {
+      contributionStats.value = sRes.contribution_stats
+    } else {
+      contributionStats.value = defaultContributionStats()
+    }
   } catch (e) {
     stats.value = defaultStats()
     taskStats.value = defaultTaskStats()
