@@ -324,7 +324,7 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   LocationFilled, Search, Refresh, RefreshRight, List, MapLocation, Clock,
@@ -334,6 +334,7 @@ import { timeline as timelineApi, spacetime as spacetimeApi, persons as personsA
 import * as echarts from 'echarts'
 
 const router = useRouter()
+const route = useRoute()
 
 const loading = ref(false)
 const spacetimeStats = ref(null)
@@ -471,6 +472,8 @@ const loadTimelineNodes = async () => {
     if (filterLocation.value) params.location_keyword = filterLocation.value
     if (filterNodeType.value) params.node_type = filterNodeType.value
     if (includeConflicted.value) params.include_conflicted = true
+    if (route.query.photo_id) params.photo_id = route.query.photo_id
+    if (route.query.memory_id) params.memory_id = route.query.memory_id
     params.page_size = 500
 
     const res = await timelineApi.query(params)

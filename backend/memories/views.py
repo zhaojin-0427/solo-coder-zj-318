@@ -1953,6 +1953,10 @@ class TimelineNodeViewSet(viewsets.ModelViewSet):
 
         if params.get('person_id'):
             qs = qs.filter(related_person_id=params['person_id'])
+        if params.get('photo_id'):
+            qs = qs.filter(related_photo_id=params['photo_id'])
+        if params.get('memory_id'):
+            qs = qs.filter(related_memory_id=params['memory_id'])
         if params.get('decade'):
             qs = qs.filter(
                 Q(decade=params['decade']) |

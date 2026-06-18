@@ -35,7 +35,8 @@ const steps = [
   { id: 4, label: '人物补注', desc: '亲属·称呼·备注' },
   { id: 5, label: '故事沉淀', desc: '回忆·片段·关联' },
   { id: 6, label: '家庭共编', desc: '确认·投票·共识' },
-  { id: 7, label: '数据统计', desc: '贡献·进度·排行' }
+  { id: 7, label: '数据统计', desc: '贡献·进度·排行' },
+  { id: 8, label: '时空脉络', desc: '迁徙·地点·时间线' }
 ]
 </script>
 

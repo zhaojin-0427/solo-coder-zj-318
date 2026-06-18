@@ -391,6 +391,8 @@ class TimelineNodeSerializer(serializers.ModelSerializer):
 
 class TimelineQuerySerializer(serializers.Serializer):
     person_id = serializers.IntegerField(required=False, allow_null=True)
+    photo_id = serializers.IntegerField(required=False, allow_null=True)
+    memory_id = serializers.IntegerField(required=False, allow_null=True)
     decade = serializers.CharField(required=False, allow_null=True, max_length=20)
     year_min = serializers.IntegerField(required=False, allow_null=True)
     year_max = serializers.IntegerField(required=False, allow_null=True)
