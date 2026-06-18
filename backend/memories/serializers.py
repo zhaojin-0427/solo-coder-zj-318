@@ -2,8 +2,7 @@ from rest_framework import serializers
 from .models import (
     Person, Alias, MigrationInfo, Relationship, Photo,
     PersonInPhoto, MemoryFragment, ConflictVersion, FamilyConfirmation,
-    CollectionTask, TaskSubmission, Contribution,
-    StandardizedLocation, TimelineNode
+    CollectionTask, TaskSubmission, Contribution
 )
 
 
@@ -345,90 +344,3 @@ class StatsSerializer(serializers.Serializer):
     clue_stats = serializers.DictField()
     task_stats = serializers.DictField(required=False)
     contribution_stats = serializers.DictField(required=False)
-    spacetime_stats = serializers.DictField(required=False)
-
-
-class StandardizedLocationSerializer(serializers.ModelSerializer):
-    level_display = serializers.CharField(source='get_level_display', read_only=True)
-    full_address = serializers.SerializerMethodField()
-
-    class Meta:
-        model = StandardizedLocation
-        fields = '__all__'
-
-    def get_full_address(self, obj):
-        return obj.get_full_address()
-
-
-class LocationSimpleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StandardizedLocation
-        fields = ['id', 'standardized_name', 'province', 'city', 'district', 'latitude', 'longitude']
-
-
-class LocationParseSerializer(serializers.Serializer):
-    original_name = serializers.CharField(required=True, max_length=500)
-    country = serializers.CharField(required=False, default='中国', max_length=100)
-
-
-class TimelineNodeSerializer(serializers.ModelSerializer):
-    node_type_display = serializers.CharField(source='get_node_type_display', read_only=True)
-    source_type_display = serializers.CharField(source='get_source_type_display', read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-    conflict_field_display = serializers.CharField(source='get_conflict_field_display', read_only=True)
-
-    related_person_detail = PersonSimpleSerializer(source='related_person', read_only=True, allow_null=True)
-    related_photo_detail = PhotoSimpleSerializer(source='related_photo', read_only=True, allow_null=True)
-    related_memory_title = serializers.CharField(source='related_memory.title', read_only=True, allow_null=True)
-    location_detail = LocationSimpleSerializer(source='location', read_only=True, allow_null=True)
-    from_location_detail = LocationSimpleSerializer(source='from_location', read_only=True, allow_null=True)
-    related_conflict_detail = ConflictVersionSerializer(source='related_conflict', read_only=True, allow_null=True)
-
-    class Meta:
-        model = TimelineNode
-        fields = '__all__'
-
-
-class TimelineQuerySerializer(serializers.Serializer):
-    person_id = serializers.IntegerField(required=False, allow_null=True)
-    photo_id = serializers.IntegerField(required=False, allow_null=True)
-    memory_id = serializers.IntegerField(required=False, allow_null=True)
-    decade = serializers.CharField(required=False, allow_null=True, max_length=20)
-    year_min = serializers.IntegerField(required=False, allow_null=True)
-    year_max = serializers.IntegerField(required=False, allow_null=True)
-    location_id = serializers.IntegerField(required=False, allow_null=True)
-    location_keyword = serializers.CharField(required=False, allow_null=True, max_length=200)
-    node_type = serializers.CharField(required=False, allow_null=True, max_length=30)
-    status = serializers.CharField(required=False, allow_null=True, max_length=20)
-    include_conflicted = serializers.BooleanField(required=False, default=False)
-    page = serializers.IntegerField(required=False, default=1)
-    page_size = serializers.IntegerField(required=False, default=50)
-
-
-class TimelineAggregateSerializer(serializers.Serializer):
-    group_by = serializers.ChoiceField(
-        choices=['decade', 'person', 'location', 'node_type', 'year'],
-        required=False,
-        default='decade'
-    )
-    person_id = serializers.IntegerField(required=False, allow_null=True)
-    include_conflicted = serializers.BooleanField(required=False, default=False)
-
-
-class SpaceArchiveQuerySerializer(serializers.Serializer):
-    person_id = serializers.IntegerField(required=False, allow_null=True)
-    include_conflicted = serializers.BooleanField(required=False, default=False)
-    include_rejected = serializers.BooleanField(required=False, default=False)
-
-
-class NodeCreateTaskSerializer(serializers.Serializer):
-    node_id = serializers.IntegerField(required=True)
-    task_type = serializers.ChoiceField(
-        choices=['identity_confirm', 'old_name_supplement', 'migration_supplement', 'event_narration', 'relation_verify'],
-        required=True
-    )
-    title = serializers.CharField(required=False, max_length=300, allow_blank=True, default='')
-    description = serializers.CharField(required=False, allow_blank=True, default='')
-    assign_type = serializers.ChoiceField(choices=['family', 'specific'], required=False, default='family')
-    assigned_to = serializers.CharField(required=False, allow_blank=True, default='')
-    created_by = serializers.CharField(required=False, default='系统', max_length=100)

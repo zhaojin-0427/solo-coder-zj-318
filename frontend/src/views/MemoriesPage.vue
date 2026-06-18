@@ -214,9 +214,6 @@
       </div>
       <template #footer>
         <el-button @click="showDetail = false">关闭</el-button>
-        <el-button type="success" plain @click="goToSpacetime('memory')">
-          <el-icon><LocationFilled /></el-icon>查看时空脉络
-        </el-button>
         <el-button @click="editMemory(detail)">编辑</el-button>
         <el-button type="primary" class="btn-primary-warm" v-if="detail?.status !== 'published'" @click="publishMemory(detail)">
           标记为已沉淀
@@ -275,7 +272,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Document, Search, EditPen, Calendar, Location, User, Clock,
-  Picture, UserFilled, View, Edit, CircleCheck, List, ArrowRight, LocationFilled
+  Picture, UserFilled, View, Edit, CircleCheck, List, ArrowRight
 } from '@element-plus/icons-vue'
 import { memories as memApi, photos as photoApi, persons as personApi, tasks as tasksApi } from '@/api'
 import { MEMORY_STATUS_OPTIONS, getOptionLabel, TASK_TYPE_OPTIONS, TASK_STATUS_OPTIONS, getTaskTypeInfo, getTaskStatusInfo, CURRENT_USER } from '@/store'
@@ -402,13 +399,6 @@ const viewMemoryTasks = (m) => {
 
 const goToTaskDetail = () => {
   router.push('/tasks')
-}
-
-const goToSpacetime = (type) => {
-  router.push({
-    path: '/migration-map',
-    query: { memory_id: detail.value?.id }
-  })
 }
 
 const openCreateTaskFromCard = (m) => {

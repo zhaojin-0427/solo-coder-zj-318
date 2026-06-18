@@ -42,12 +42,6 @@ const routes = [
     meta: { title: '家庭确认台', icon: 'CircleCheck', step: 6 }
   },
   {
-    path: '/migration-map',
-    name: 'MigrationMap',
-    component: () => import('@/views/MigrationMapPage.vue'),
-    meta: { title: '迁徙地图', icon: 'LocationFilled', step: 8 }
-  },
-  {
     path: '/stats',
     name: 'Stats',
     component: () => import('@/views/StatsPage.vue'),

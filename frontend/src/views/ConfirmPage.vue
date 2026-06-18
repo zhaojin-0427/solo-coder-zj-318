@@ -125,12 +125,51 @@
           <div class="confirm-meta">
             <span>提案人：{{ item.proposer }}</span>
             <span><el-icon><Clock /></el-icon> {{ formatDate(item.created_at) }}</span>
+            <span v-if="item.related_artifact_name" class="artifact-meta">
+              📦 {{ item.related_artifact_name }}
+            </span>
             <span v-if="item.deadline" class="deadline">
               <el-icon><Timer /></el-icon> 截止：{{ formatDate(item.deadline) }}
             </span>
           </div>
           <div class="confirm-detail">
             {{ item.detail }}
+          </div>
+          <div v-if="item.confirm_type === 'artifact_dispute' && item.related_artifact_dispute" class="artifact-dispute-section">
+            <div class="dispute-artifact-info">
+              <div class="artifact-thumb-small">
+                <img :src="item.related_artifact_image" v-if="item.related_artifact_image" />
+                <span v-else>📦</span>
+              </div>
+              <div class="artifact-info-text">
+                <div class="artifact-name">{{ item.related_artifact_name }}</div>
+                <div class="artifact-type">{{ item.related_artifact_type || '物件' }}</div>
+              </div>
+              <el-button type="primary" link size="small" @click="goToArtifactDetail(item.related_artifact)">
+                查看物件详情
+              </el-button>
+            </div>
+            <div class="dispute-versions">
+              <div class="version-card version-original">
+                <div class="version-label">
+                  <span class="version-badge original">原</span>
+                  <span>原版本 · {{ item.related_artifact_dispute.version_original_author || '初始记录' }}</span>
+                </div>
+                <div class="version-content">{{ item.related_artifact_dispute.version_original }}</div>
+              </div>
+              <div class="version-vs">VS</div>
+              <div class="version-card version-new">
+                <div class="version-label">
+                  <span class="version-badge new">新</span>
+                  <span>争议版本 · {{ item.related_artifact_dispute.version_new_author }}</span>
+                </div>
+                <div class="version-content">{{ item.related_artifact_dispute.version_new }}</div>
+              </div>
+            </div>
+            <div v-if="item.related_artifact_dispute.description" class="dispute-description">
+              <span class="desc-label">争议说明：</span>
+              <span>{{ item.related_artifact_dispute.description }}</span>
+            </div>
           </div>
           <div class="confirm-vote-section" v-if="item.status === 'pending' || item.status === 'tied'">
             <div class="vote-results">
@@ -237,6 +276,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   CircleCheck, Warning, Plus, Clock, Check, Stamp, DocumentAdd,
@@ -254,6 +294,7 @@ const confirmTypeFilter = ref('')
 const showAddConflict = ref(false)
 const showAddConfirm = ref(false)
 const currentVoter = ref('长孙')
+const router = useRouter()
 
 const conflictForm = ref({
   conflict_field: 'other', related_person: null, related_photo: null,
@@ -409,6 +450,10 @@ const submitConfirm = async () => {
   loadData()
 }
 
+const goToArtifactDetail = (artifactId) => {
+  router.push({ path: '/artifacts', query: { id: artifactId } })
+}
+
 onMounted(loadData)
 </script>
 
@@ -512,6 +557,62 @@ function mockConfirmations() {
       vote_reject: 0,
       voters: ['二叔', '大姑', '三姑', '大哥'],
       created_at: '2024-02-15T10:00:00'
+    },
+    {
+      id: 106,
+      confirm_type: 'artifact_dispute',
+      confirm_type_display: '物件争议',
+      title: '确认祖父怀表的年代',
+      detail: '关于祖父留下的怀表生产年代存在争议。\n\n说法一：清代光绪年间，是祖父的父亲留下的\n说法二：民国初期，祖父年轻时在上海当铺买的\n\n请了解情况的家属确认。',
+      proposer: '长孙',
+      status: 'pending',
+      vote_approve: 2,
+      vote_reject: 1,
+      voters: ['大姑', '二叔', '三姑'],
+      related_artifact: 1,
+      related_artifact_name: '祖父的怀表',
+      related_artifact_type: '老物件',
+      related_artifact_image: '',
+      related_artifact_dispute: {
+        id: 1,
+        dispute_field: 'era',
+        dispute_field_display: '年代',
+        version_original: '清代光绪年间（约1890年）',
+        version_original_author: '大伯口述',
+        version_new: '民国初期（约1915年）',
+        version_new_author: '三姑记忆',
+        description: '怀表背面刻有"光绪"字样，但有人认为是民国时期仿制的',
+        status: 'open'
+      },
+      created_at: '2024-03-10T09:00:00'
+    },
+    {
+      id: 107,
+      confirm_type: 'artifact_dispute',
+      confirm_type_display: '物件争议',
+      title: '确认奶奶银手镯的来源',
+      detail: '关于奶奶的银手镯的来源有两种说法。\n\n说法一：奶奶的陪嫁首饰，是外婆给的\n说法二：是爷爷的定情信物，当年爷爷在银铺定做的\n\n请长辈们回忆确认。',
+      proposer: '长孙媳',
+      status: 'tied',
+      vote_approve: 1,
+      vote_reject: 1,
+      voters: ['大姑', '二姑'],
+      related_artifact: 2,
+      related_artifact_name: '奶奶的银手镯',
+      related_artifact_type: '首饰',
+      related_artifact_image: '',
+      related_artifact_dispute: {
+        id: 2,
+        dispute_field: 'source',
+        dispute_field_display: '来源',
+        version_original: '外婆陪嫁，清代银饰',
+        version_original_author: '大姑回忆',
+        version_new: '爷爷定情信物，民国银楼定做',
+        version_new_author: '二姑听奶奶说的',
+        description: '手镯内侧有"天宝银楼"字样，需要确认年代和来源',
+        status: 'open'
+      },
+      created_at: '2024-03-12T14:30:00'
     },
     {
       id: 104,
@@ -848,5 +949,153 @@ function mockConfirmations() {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.confirm-type-badge.artifact_dispute { background: #F59E0B; }
+
+.artifact-meta {
+  color: #D2691E;
+  font-weight: 500;
+}
+
+.artifact-dispute-section {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: #FFFAF0;
+  border-radius: 10px;
+  border: 1px solid #F5EDE0;
+}
+
+.dispute-artifact-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed #E8D8C4;
+}
+
+.artifact-thumb-small {
+  width: 50px;
+  height: 50px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #FEF3E2, #FDE68A);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.artifact-thumb-small img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artifact-info-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.artifact-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #5D4E3A;
+  margin-bottom: 2px;
+}
+
+.artifact-type {
+  font-size: 12px;
+  color: #8B7355;
+}
+
+.dispute-versions {
+  display: grid;
+  grid-template-columns: 1fr 40px 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+  align-items: stretch;
+}
+
+.dispute-versions .version-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.dispute-versions .version-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #5D4E3A;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.dispute-versions .version-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.dispute-versions .version-badge.original {
+  background: #6B7280;
+}
+
+.dispute-versions .version-badge.new {
+  background: #F59E0B;
+}
+
+.dispute-versions .version-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #3D2914;
+}
+
+.dispute-versions .version-original {
+  background: linear-gradient(135deg, #F3F4F6, #E5E7EB);
+  border: 1px solid #9CA3AF;
+}
+
+.dispute-versions .version-new {
+  background: linear-gradient(135deg, #FEF3C7, #FDE68A);
+  border: 1px solid #FBBF24;
+}
+
+.dispute-versions .version-vs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #D2691E;
+  font-size: 14px;
+  background: #FEF3E2;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  align-self: center;
+  justify-self: center;
+}
+
+.dispute-description {
+  font-size: 12px;
+  color: #8B7355;
+  padding: 8px 10px;
+  background: #FFF8F0;
+  border-radius: 6px;
+  line-height: 1.5;
+}
+
+.dispute-description .desc-label {
+  font-weight: 600;
+  color: #5D4E3A;
 }
 </style>

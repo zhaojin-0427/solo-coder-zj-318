@@ -71,39 +71,6 @@
       </div>
     </div>
 
-    <div class="stat-cards" v-if="spacetimeStats" v-loading="loading">
-      <div class="stat-card" style="background: linear-gradient(135deg, #0EA5E9, #38BDF8);">
-        <div class="stat-icon">📷📍</div>
-        <div class="stat-value">{{ spacetimeStats?.photos_with_location || 0 }}</div>
-        <div class="stat-label">已定位照片</div>
-        <div class="stat-trend">共 {{ spacetimeStats?.total_photos || 0 }} 张</div>
-      </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #8B5CF6, #A78BFA);">
-        <div class="stat-icon">🗓️</div>
-        <div class="stat-value">{{ spacetimeStats?.total_nodes || 0 }}</div>
-        <div class="stat-label">迁徙节点总数</div>
-        <div class="stat-trend">{{ spacetimeStats?.confirmed_nodes || 0 }} 已确认</div>
-      </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #EF4444, #F87171);">
-        <div class="stat-icon">⚠️</div>
-        <div class="stat-value">{{ spacetimeStats?.location_conflicts_pending || 0 }}</div>
-        <div class="stat-label">地点冲突待确认</div>
-        <div class="stat-trend highlight">{{ spacetimeStats?.conflicted_nodes || 0 }} 个节点有冲突</div>
-      </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #10B981, #34D399);">
-        <div class="stat-icon">👤</div>
-        <div class="stat-value">{{ spacetimeStats?.persons_with_nodes || 0 }}</div>
-        <div class="stat-label">有轨迹人物</div>
-        <div class="stat-trend">{{ stats?.total_persons || 0 }} 人总建档</div>
-      </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #F59E0B, #FBBF24);">
-        <div class="stat-icon">🏠</div>
-        <div class="stat-value">{{ spacetimeStats?.migration_nodes || 0 }}</div>
-        <div class="stat-label">迁居记录数</div>
-        <div class="stat-trend">覆盖 {{ spacetimeStats?.unique_locations || 0 }} 个地点</div>
-      </div>
-    </div>
-
     <div class="charts-grid">
       <div class="chart-card card-warm">
         <div class="chart-header">
@@ -297,25 +264,6 @@
             </div>
         </div>
       </div>
-
-      <div class="chart-card card-warm">
-        <div class="chart-header">
-          <h3><el-icon><TrendCharts /></el-icon> 各年代迁徙覆盖率</h3>
-          <span class="sub-hint">（有节点的年代数 / 总年代数）</span>
-        </div>
-        <div class="chart-body">
-          <div ref="decadeCoverageChart" class="chart-canvas" style="height: 300px;"></div>
-        </div>
-      </div>
-
-      <div class="chart-card card-warm">
-        <div class="chart-header">
-          <h3><el-icon><LocationFilled /></el-icon> 高频迁入/迁出地点排行 TOP 8</h3>
-        </div>
-        <div class="chart-body">
-          <div ref="locationRankChart" class="chart-canvas" style="height: 300px;"></div>
-        </div>
-      </div>
     </div>
 
     <div class="legend-card card-warm">
@@ -364,10 +312,10 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
-import { stats as statsApi, tasks as tasksApi, contributions as contribApi, spacetime as spacetimeApi } from '@/api'
+import { stats as statsApi, tasks as tasksApi, contributions as contribApi } from '@/api'
 import {
   DataAnalysis, Picture, UserFilled, TrendCharts, Connection, Warning, CircleCheckFilled, Search,
-  Trophy, Collection, WarningFilled, LocationFilled
+  Trophy, Collection, WarningFilled
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
@@ -375,23 +323,18 @@ const loading = ref(false)
 const stats = ref(null)
 const taskStats = ref(null)
 const contributionStats = ref(null)
-const spacetimeStats = ref(null)
 const eraChart = ref(null)
 const topChart = ref(null)
 const clueChart = ref(null)
 const contributorChart = ref(null)
 const taskTypeChart = ref(null)
 const topTaskPersonChart = ref(null)
-const decadeCoverageChart = ref(null)
-const locationRankChart = ref(null)
 let eraChartInstance = null
 let topChartInstance = null
 let clueChartInstance = null
 let contributorChartInstance = null
 let taskTypeChartInstance = null
 let topTaskPersonChartInstance = null
-let decadeCoverageChartInstance = null
-let locationRankChartInstance = null
 
 const familyMemberCount = computed(() => {
   const lb = contributionStats.value?.leaderboard || []
@@ -586,11 +529,10 @@ const overallProgress = computed(() => {
 const loadData = async () => {
   loading.value = true
   try {
-    const [sRes, tRes, cRes, spRes] = await Promise.all([
+    const [sRes, tRes, cRes] = await Promise.all([
       statsApi.get().catch(() => null),
       tasksApi.stats().catch(() => null),
-      contribApi.ranking().catch(() => null),
-      spacetimeApi.stats().catch(() => null)
+      contribApi.ranking().catch(() => null)
     ])
     stats.value = sRes || defaultStats()
     if (tRes) {
@@ -632,30 +574,10 @@ const loadData = async () => {
     } else {
       contributionStats.value = defaultContributionStats()
     }
-    if (spRes) {
-      spacetimeStats.value = spRes
-    } else if (sRes?.spacetime_stats) {
-      spacetimeStats.value = sRes.spacetime_stats
-    } else {
-      spacetimeStats.value = {
-        total_nodes: 0, confirmed_nodes: 0, pending_nodes: 0, conflicted_nodes: 0,
-        photos_with_location: 0, persons_with_nodes: 0, migration_nodes: 0,
-        location_conflicts_pending: 0, total_photos: 0, unique_locations: 0,
-        decade_coverage: [],
-        top_migration_locations: []
-      }
-    }
   } catch (e) {
     stats.value = defaultStats()
     taskStats.value = defaultTaskStats()
     contributionStats.value = defaultContributionStats()
-    spacetimeStats.value = {
-      total_nodes: 0, confirmed_nodes: 0, pending_nodes: 0, conflicted_nodes: 0,
-      photos_with_location: 0, persons_with_nodes: 0, migration_nodes: 0,
-      location_conflicts_pending: 0, total_photos: 0, unique_locations: 0,
-      decade_coverage: [],
-      top_migration_locations: []
-    }
   } finally {
     loading.value = false
     await nextTick()
@@ -665,8 +587,6 @@ const loadData = async () => {
     renderContributorChart()
     renderTaskTypeChart()
     renderTopTaskPersonChart()
-    renderDecadeCoverageChart()
-    renderLocationRankChart()
   }
 }
 
@@ -988,135 +908,6 @@ const renderTopTaskPersonChart = () => {
   topTaskPersonChartInstance.setOption(option)
 }
 
-const renderDecadeCoverageChart = () => {
-  if (!decadeCoverageChart.value) return
-  if (decadeCoverageChartInstance) decadeCoverageChartInstance.dispose()
-  decadeCoverageChartInstance = echarts.init(decadeCoverageChart.value)
-
-  const raw = spacetimeStats.value?.decade_coverage || []
-  const allDecades = ['1920s', '1930s', '1940s', '1950s', '1960s', '1970s', '1980s', '1990s', '2000s', '2010s', '2020s']
-  const data = allDecades.map(decade => {
-    const match = raw.find(d => d.decade === decade)
-    return {
-      decade,
-      label: `${decade.slice(0, 3)}年代`,
-      node_count: match?.count || match?.node_count || 0,
-      coverage: match?.coverage || 0
-    }
-  })
-
-  const option = {
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: (p) => `${p[0].name}<br/>时空节点：${p[0].value} 个`
-    },
-    legend: {
-      data: ['节点数量'],
-      textStyle: { color: '#5D4E3A' }
-    },
-    grid: { left: 50, right: 50, top: 50, bottom: 40 },
-    xAxis: {
-      type: 'category',
-      data: data.map(d => d.label),
-      axisLabel: { color: '#8B7355', rotate: 30, fontSize: 10 }
-    },
-    yAxis: [
-      {
-        type: 'value',
-        name: '节点数',
-        axisLabel: { color: '#8B7355' },
-        splitLine: { lineStyle: { color: '#F5EDE0' } }
-      }
-    ],
-    series: [
-      {
-        name: '节点数量',
-        type: 'bar',
-        data: data.map((d, i) => ({
-          value: d.node_count,
-          itemStyle: {
-            borderRadius: [4, 4, 0, 0],
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: '#D2691E' },
-              { offset: 1, color: '#F4A460' }
-            ])
-          }
-        })),
-        barWidth: '45%'
-      }
-    ]
-  }
-  decadeCoverageChartInstance.setOption(option)
-}
-
-const renderLocationRankChart = () => {
-  if (!locationRankChart.value) return
-  if (locationRankChartInstance) locationRankChartInstance.dispose()
-  locationRankChartInstance = echarts.init(locationRankChart.value)
-
-  const raw = spacetimeStats.value?.top_migration_locations || spacetimeStats.value?.top_in_locations || []
-  if (!raw.length) {
-    locationRankChartInstance.setOption({
-      title: {
-        text: '暂无地点数据',
-        left: 'center',
-        top: 'center',
-        textStyle: { color: '#B5A48C', fontSize: 16, fontWeight: 'normal' }
-      }
-    })
-    return
-  }
-
-  const data = raw.slice(0, 8).reverse()
-  const option = {
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: (p) => {
-        const d = data[p[0].dataIndex]
-        return `${d.name}<br/>节点数: ${d.count || d.in_count || 0} 次`
-      }
-    },
-    grid: { left: 80, right: 40, top: 20, bottom: 30 },
-    xAxis: {
-      type: 'value',
-      axisLabel: { color: '#8B7355' },
-      splitLine: { lineStyle: { color: '#F5EDE0' } }
-    },
-    yAxis: {
-      type: 'category',
-      data: data.map(d => d.name),
-      axisLabel: { color: '#5D4E3A', fontWeight: 500 }
-    },
-    series: [
-      {
-        name: '节点数',
-        type: 'bar',
-        data: data.map(d => ({
-          value: d.count || d.in_count || 0,
-          itemStyle: {
-            borderRadius: [0, 10, 10, 0],
-            color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-              { offset: 0, color: '#F4A460' },
-              { offset: 1, color: '#D2691E' }
-            ])
-          }
-        })),
-        label: {
-          show: true,
-          position: 'right',
-          color: '#8B4513',
-          fontWeight: 600,
-          formatter: '{c} 次'
-        },
-        barWidth: '55%'
-      }
-    ]
-  }
-  locationRankChartInstance.setOption(option)
-}
-
 const handleResize = () => {
   eraChartInstance?.resize()
   topChartInstance?.resize()
@@ -1124,11 +915,9 @@ const handleResize = () => {
   contributorChartInstance?.resize()
   taskTypeChartInstance?.resize()
   topTaskPersonChartInstance?.resize()
-  decadeCoverageChartInstance?.resize()
-  locationRankChartInstance?.resize()
 }
 
-watch([() => stats.value, () => taskStats.value, () => contributionStats.value, () => spacetimeStats.value], () => {
+watch([() => stats.value, () => taskStats.value, () => contributionStats.value], () => {
   nextTick(() => {
     renderEraChart()
     renderTopChart()
@@ -1136,8 +925,6 @@ watch([() => stats.value, () => taskStats.value, () => contributionStats.value, 
     renderContributorChart()
     renderTaskTypeChart()
     renderTopTaskPersonChart()
-    renderDecadeCoverageChart()
-    renderLocationRankChart()
   })
 })
 

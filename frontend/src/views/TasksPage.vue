@@ -126,6 +126,9 @@
                     <span v-if="task.related_photo_detail" class="meta-item">
                       🖼️ {{ task.related_photo_detail.title || '照片#' + task.related_photo }}
                     </span>
+                    <span v-if="task.related_artifact_detail" class="meta-item">
+                      📦 {{ task.related_artifact_detail.name || '物件#' + task.related_artifact }}
+                    </span>
                     <span v-if="task.related_memory_title" class="meta-item">
                       📜 {{ task.related_memory_title }}
                     </span>
@@ -347,6 +350,30 @@
           <el-descriptions-item label="创建时间">{{ formatTime(currentTask.created_at) }}</el-descriptions-item>
           <el-descriptions-item label="关联照片" v-if="currentTask.related_photo_detail">
             <span>🖼️ {{ currentTask.related_photo_detail.title || '#' + currentTask.related_photo }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="关联物件" v-if="currentTask.related_artifact_detail" :span="2">
+            <div class="related-artifact-card" @click.stop="goToArtifactDetail(currentTask.related_artifact)">
+              <div class="artifact-thumb">
+                <img :src="currentTask.related_artifact_detail.image_url" v-if="currentTask.related_artifact_detail.image_url" />
+                <span v-else>📦</span>
+              </div>
+              <div class="artifact-info">
+                <div class="artifact-name">{{ currentTask.related_artifact_detail.name || '未命名物件' }}</div>
+                <div class="artifact-tags">
+                  <el-tag size="small" type="warning" effect="light">
+                    {{ getArtifactTypeLabel(currentTask.related_artifact_detail.artifact_type) }}
+                  </el-tag>
+                  <el-tag size="small" v-if="currentTask.related_artifact_detail.era" effect="plain">
+                    {{ currentTask.related_artifact_detail.era }}
+                  </el-tag>
+                </div>
+                <div class="artifact-link">
+                  <el-button type="primary" link size="small">
+                    查看物件详情 <el-icon><ArrowRight /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+            </div>
           </el-descriptions-item>
           <el-descriptions-item label="关联人物" v-if="currentTask.related_person_detail">
             <span>👤 {{ currentTask.related_person_detail.name }}</span>
@@ -579,12 +606,12 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   List, Document, UserFilled, Trophy, MagicStick, Plus, Search, Refresh,
   Check, Edit, View, Promotion, TrendCharts, Clock, PieChart,
-  ChatDotRound, Connection, WarningFilled
+  ChatDotRound, Connection, WarningFilled, ArrowRight
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { tasks as tasksApi, persons as personsApi } from '@/api'
@@ -595,6 +622,7 @@ import {
 } from '@/store'
 
 const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const statsLoading = ref(false)
 const tasks = ref([])
@@ -662,6 +690,26 @@ const getFieldLabel = (k) => ({
   relation_note: '关系备注'
 }[k] || k)
 
+const ARTIFACT_TYPE_OPTIONS = [
+  { value: 'old_object', label: '老物件' },
+  { value: 'letter', label: '家书' },
+  { value: 'ticket', label: '票证' },
+  { value: 'certificate', label: '奖状' },
+  { value: 'document', label: '证件' },
+  { value: 'manuscript', label: '手稿' },
+  { value: 'book', label: '书籍' },
+  { value: 'clothing', label: '服饰' },
+  { value: 'jewelry', label: '首饰' },
+  { value: 'furniture', label: '家具' },
+  { value: 'tool', label: '工具' },
+  { value: 'other', label: '其他' }
+]
+
+const getArtifactTypeLabel = (type) => {
+  const opt = ARTIFACT_TYPE_OPTIONS.find(o => o.value === type)
+  return opt?.label || type || '物件'
+}
+
 const onTabChange = () => {
   if (activeTab.value === 'all') loadTasks()
   if (activeTab.value === 'mine') {
@@ -682,7 +730,7 @@ const loadTasks = async () => {
     if (filterStatus.value) params.status = filterStatus.value
     if (filterAssign.value) params.assign_type = filterAssign.value
     if (filterRelatedId.value && filterSource.value) {
-      const fieldMap = { photo: 'related_photo', person: 'related_person', memory: 'related_memory' }
+      const fieldMap = { photo: 'related_photo', person: 'related_person', memory: 'related_memory', artifact: 'related_artifact' }
       const field = fieldMap[filterSource.value]
       if (field) params[field] = filterRelatedId.value
     }
@@ -793,6 +841,10 @@ const mockTasks = () => {
   for (let i = 1; i <= 15; i++) {
     const tt = types[i % 5]
     const st = statuses[i % 7]
+    const sourceIdx = i % 4
+    const sourceTypes = ['photo', 'person', 'memory', 'artifact']
+    const sourceType = sourceTypes[sourceIdx]
+    const sourceTypeDisplays = ['照片', '人物', '回忆片段', '物件']
     mock.push({
       id: i,
       task_type: tt,
@@ -803,8 +855,8 @@ const mockTasks = () => {
         '事件背景口述：1978年春节全家福背后的故事',
         '校验亲属关系：张桂芬和李建国是什么关系？'][i % 5] + ' #' + i,
       description: '请根据老人口述或家族资料，认真完成此补注任务。如有多个版本请详细记录。',
-      source_type: ['photo', 'person', 'memory'][i % 3],
-      source_type_display: ['照片', '人物', '回忆片段'][i % 3],
+      source_type: sourceType,
+      source_type_display: sourceTypeDisplays[sourceIdx],
       status: st,
       status_display: getTaskStatusInfo(st).label,
       assign_type: i % 3 === 0 ? 'specific' : 'family',
@@ -812,11 +864,19 @@ const mockTasks = () => {
       assigned_to: i % 3 === 0 ? '王秀兰' : '',
       claimed_by: ['in_progress', 'submitted', 'completed'].includes(st) ? (i % 2 === 0 ? CURRENT_USER : '王秀兰') : '',
       claimed_at: ['in_progress', 'submitted', 'completed'].includes(st) ? '2024-01-14 10:00:00' : null,
-      related_person: i % 3 === 1 ? i : null,
-      related_person_detail: i % 3 === 1 ? { id: i, name: '李大山' } : null,
-      related_photo: i % 3 === 0 ? i : null,
-      related_photo_detail: i % 3 === 0 ? { id: i, title: '1978年春节全家福' } : null,
-      related_memory_title: i % 3 === 2 ? '那年夏天的海边之旅' : null,
+      related_person: sourceType === 'person' ? i : null,
+      related_person_detail: sourceType === 'person' ? { id: i, name: '李大山' } : null,
+      related_photo: sourceType === 'photo' ? i : null,
+      related_photo_detail: sourceType === 'photo' ? { id: i, title: '1978年春节全家福' } : null,
+      related_artifact: sourceType === 'artifact' ? i : null,
+      related_artifact_detail: sourceType === 'artifact' ? { 
+        id: i, 
+        name: ['祖父的怀表', '奶奶的银手镯', '民国老家书', '1965年奖状'][i % 4],
+        artifact_type: ['old_object', 'jewelry', 'letter', 'certificate'][i % 4],
+        era: ['1900s', '1920s', '1930s', '1960s'][i % 4],
+        image_url: ''
+      } : null,
+      related_memory_title: sourceType === 'memory' ? '那年夏天的海边之旅' : null,
       priority: i > 10 ? 10 : 5,
       created_by: '系统',
       created_at: '2024-01-10 09:00:00',
@@ -969,6 +1029,10 @@ const openCreateTask = () => {
       ElMessage.error('创建失败')
     }
   }).catch(() => {})
+}
+
+const goToArtifactDetail = (artifactId) => {
+  router.push({ path: '/artifacts', query: { id: artifactId } })
 }
 
 const onPageChange = (p) => {
@@ -1514,4 +1578,67 @@ onMounted(() => {
 }
 
 .dialog-footer { display: flex; justify-content: flex-end; gap: 8px; }
+
+.artifact-detail-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.artifact-detail-link:hover {
+  color: #D2691E;
+}
+
+.related-artifact-card {
+  display: flex;
+  gap: 14px;
+  padding: 12px;
+  background: linear-gradient(135deg, #FFFAF0, #FFF8F0);
+  border: 1px solid #F5EDE0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.related-artifact-card:hover {
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.1);
+  transform: translateY(-1px);
+}
+.related-artifact-card .artifact-thumb {
+  width: 70px;
+  height: 70px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #FEF3E2, #FDE68A);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.related-artifact-card .artifact-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.related-artifact-card .artifact-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+.related-artifact-card .artifact-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #5D4E3A;
+}
+.related-artifact-card .artifact-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.related-artifact-card .artifact-link {
+  margin-top: 2px;
+}
 </style>

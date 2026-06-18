@@ -168,9 +168,6 @@
                 <el-tag size="small" effect="plain" v-else>暂无任务</el-tag>
               </div>
               <div class="task-entry-right">
-                <el-button size="small" type="success" plain @click.stop="goToSpacetime('photo')">
-                  <el-icon><LocationFilled /></el-icon>查看时空脉络
-                </el-button>
                 <el-button size="small" type="primary" plain @click.stop="openCreateTask('identity_confirm')">
                   <el-icon><Plus /></el-icon>发起身份确认
                 </el-button>
@@ -584,13 +581,6 @@ const submitCreateTask = async () => {
 
 const goToTasks = () => {
   router.push({ path: '/tasks', query: { source_type: 'photo', related_id: currentPhoto.value?.id } })
-}
-
-const goToSpacetime = (type) => {
-  router.push({
-    path: '/migration-map',
-    query: { photo_id: currentPhoto.value?.id }
-  })
 }
 
 const goToTaskDetail = () => {

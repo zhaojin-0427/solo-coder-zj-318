@@ -108,9 +108,6 @@
                 <el-button size="small" type="primary" class="btn-primary-warm" @click="showAddRelation = true">
                   <el-icon><Link /></el-icon>添加亲属关系
                 </el-button>
-                <el-button size="small" type="success" plain @click="goToSpacetime('person')">
-                  <el-icon><LocationFilled /></el-icon>查看时空脉络
-                </el-button>
                 <el-dropdown>
                   <el-button size="small" type="warning" plain>
                     <el-icon><List /></el-icon>采集任务<el-icon><ArrowDown /></el-icon>
@@ -432,7 +429,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   User, Search, Plus, UserFilled, Location, Edit, Link, ArrowDown, Right,
-  List, Warning, ArrowUp, LocationFilled
+  List, Warning, ArrowUp
 } from '@element-plus/icons-vue'
 import { persons as personsApi, relationships as relApi, aliases as aliasApi, migrations as migApi, personInPhoto as pipApi, photos as photosApi, tasks as tasksApi } from '@/api'
 import { RELATION_OPTIONS, STATUS_OPTIONS, ERA_OPTIONS, SCENE_OPTIONS, getOptionLabel, photoPlaceholder, TASK_TYPE_OPTIONS, TASK_STATUS_OPTIONS, getTaskTypeInfo, getTaskStatusInfo, CURRENT_USER } from '@/store'
@@ -619,13 +616,6 @@ const submitCreateTask = async () => {
 
 const goToTasks = () => {
   router.push({ path: '/tasks', query: { source_type: 'person', related_id: currentPerson.value?.id } })
-}
-
-const goToSpacetime = (type) => {
-  router.push({
-    path: '/migration-map',
-    query: { person_id: currentPerson.value?.id }
-  })
 }
 
 const goToTaskDetail = () => {
