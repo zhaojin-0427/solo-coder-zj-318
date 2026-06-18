@@ -142,4 +142,27 @@ export const contributions = {
   ranking: (params = {}) => api.get('/contributions/ranking/', { params })
 }
 
+export const locations = {
+  list: (params = {}) => api.get('/locations/', { params }),
+  get: (id) => api.get(`/locations/${id}/`),
+  search: (keyword) => api.get('/locations/search/', { params: { keyword } }),
+  parse: (originalName, country = '中国') => api.post('/locations/parse/', { original_name: originalName, country }),
+  parseAndSave: (originalName, country = '中国') => api.post('/locations/parse_and_save/', { original_name: originalName, country })
+}
+
+export const timeline = {
+  list: (params = {}) => api.get('/timeline/', { params }),
+  get: (id) => api.get(`/timeline/${id}/`),
+  query: (params = {}) => api.get('/timeline/query/', { params }),
+  aggregate: (params = {}) => api.get('/timeline/aggregate/', { params }),
+  conflicts: () => api.get('/timeline/conflicts/'),
+  sync: (source = 'all') => api.post('/timeline/sync/', { source }),
+  createTask: (nodeId, data) => api.post(`/timeline/${nodeId}/create_task/`, data)
+}
+
+export const spacetime = {
+  archive: (params = {}) => api.get('/space-archive/', { params }),
+  stats: () => api.get('/spacetime-stats/')
+}
+
 export default api

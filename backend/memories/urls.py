@@ -6,7 +6,9 @@ from .views import (
     ConflictVersionViewSet, FamilyConfirmationViewSet, StatsView,
     CluesView, ClueDetailView, ClaimClueView, ClueStatsView,
     CollectionTaskViewSet, TaskSubmissionViewSet, ContributionViewSet,
-    TaskStatsView, GenerateTasksView, ContributionRankingView
+    TaskStatsView, GenerateTasksView, ContributionRankingView,
+    StandardizedLocationViewSet, TimelineNodeViewSet,
+    SpaceArchiveView, SpacetimeStatsView
 )
 
 router = DefaultRouter()
@@ -22,6 +24,8 @@ router.register(r'confirmations', FamilyConfirmationViewSet)
 router.register(r'tasks', CollectionTaskViewSet)
 router.register(r'task-submissions', TaskSubmissionViewSet)
 router.register(r'contributions', ContributionViewSet)
+router.register(r'locations', StandardizedLocationViewSet)
+router.register(r'timeline', TimelineNodeViewSet)
 
 urlpatterns = [
     path('tasks/stats/', TaskStatsView.as_view(), name='task-stats'),
@@ -33,4 +37,6 @@ urlpatterns = [
     path('clues/claim/', ClaimClueView.as_view(), name='claim-clue'),
     path('clues/', CluesView.as_view(), name='clues'),
     path('clues/<str:clue_key>/', ClueDetailView.as_view(), name='clue-detail'),
+    path('space-archive/', SpaceArchiveView.as_view(), name='space-archive'),
+    path('spacetime-stats/', SpacetimeStatsView.as_view(), name='spacetime-stats'),
 ]
