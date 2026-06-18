@@ -30,10 +30,12 @@ defineProps({
 
 const steps = [
   { id: 1, label: '照片整理', desc: '年代·场景·来源' },
-  { id: 2, label: '线索认领', desc: '暂用名·待确认' },
-  { id: 3, label: '人物补注', desc: '亲属·称呼·备注' },
-  { id: 4, label: '故事沉淀', desc: '回忆·片段·关联' },
-  { id: 5, label: '家庭共编', desc: '确认·投票·共识' }
+  { id: 2, label: '采集任务', desc: '分派·认领·补注' },
+  { id: 3, label: '线索认领', desc: '暂用名·待确认' },
+  { id: 4, label: '人物补注', desc: '亲属·称呼·备注' },
+  { id: 5, label: '故事沉淀', desc: '回忆·片段·关联' },
+  { id: 6, label: '家庭共编', desc: '确认·投票·共识' },
+  { id: 7, label: '数据统计', desc: '贡献·进度·排行' }
 ]
 </script>
 

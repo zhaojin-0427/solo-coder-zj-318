@@ -3,13 +3,14 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.db.models import Count, Q, IntegerField, Min, Max
+from django.db.models import Count, Q, IntegerField, Min, Max, Sum
 from django.db.models.functions import Coalesce
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 from .models import (
     Person, Alias, MigrationInfo, Relationship, Photo,
-    PersonInPhoto, MemoryFragment, ConflictVersion, FamilyConfirmation
+    PersonInPhoto, MemoryFragment, ConflictVersion, FamilyConfirmation,
+    CollectionTask, TaskSubmission, Contribution
 )
 from .serializers import (
     PersonSerializer, AliasSerializer, MigrationInfoSerializer,
@@ -17,7 +18,10 @@ from .serializers import (
     MemoryFragmentSerializer, ConflictVersionSerializer,
     FamilyConfirmationSerializer, StatsSerializer, PersonSimpleSerializer,
     PhotoSimpleSerializer, ClueSerializer, ClaimClueSerializer,
-    ClaimResultSerializer
+    ClaimResultSerializer, CollectionTaskSerializer, TaskSubmissionSerializer,
+    ContributionSerializer, TaskStatsSerializer, TaskClaimSerializer,
+    TaskSubmitSerializer, TaskReviewSerializer, GenerateTasksSerializer,
+    ContributionRankingSerializer
 )
 from .filters import PhotoFilter, PersonFilter
 
@@ -465,6 +469,604 @@ class ClueStatsView(APIView):
         })
 
 
+def _create_contribution(contributor, ctype, **kwargs):
+    points_map = {
+        'task_submit': 10,
+        'task_claim': 5,
+        'task_approved': 30,
+        'clue_claim': 20,
+        'person_add': 25,
+        'memory_add': 35,
+        'photo_annotate': 15,
+        'review_pass': 20,
+        'vote_participate': 5,
+    }
+    Contribution.objects.create(
+        contributor=contributor,
+        contribution_type=ctype,
+        points=points_map.get(ctype, 10),
+        **kwargs
+    )
+
+
+def _check_for_conflict(task, submission_data):
+    has_conflict = False
+    conflict_desc = ''
+    try:
+        if task.task_type == 'old_name_supplement':
+            alias_name = submission_data.get('alias_name', '')
+            if task.related_person:
+                exists = Alias.objects.filter(
+                    person=task.related_person, alias_name=alias_name
+                ).exists()
+                if exists:
+                    has_conflict = True
+                    conflict_desc = f'别名「{alias_name}」已存在'
+        elif task.task_type == 'identity_confirm':
+            if task.related_photo and submission_data.get('person_id'):
+                person_id = submission_data.get('person_id')
+                pip_exists = PersonInPhoto.objects.filter(
+                    photo=task.related_photo, person_id=person_id
+                ).exists()
+                if pip_exists:
+                    has_conflict = True
+                    conflict_desc = f'该人物已关联到此照片'
+        elif task.task_type == 'migration_supplement':
+            if task.related_person:
+                from_place = submission_data.get('from_place', '')
+                to_place = submission_data.get('to_place', '')
+                exists = MigrationInfo.objects.filter(
+                    person=task.related_person,
+                    from_place=from_place,
+                    to_place=to_place
+                ).exists()
+                if exists:
+                    has_conflict = True
+                    conflict_desc = f'迁居信息 {from_place}→{to_place} 已存在'
+    except Exception:
+        pass
+    return has_conflict, conflict_desc
+
+
+def _apply_submission_data(task, submission_data, submitter):
+    try:
+        if task.task_type == 'old_name_supplement' and task.related_person:
+            Alias.objects.create(
+                person=task.related_person,
+                alias_name=submission_data.get('alias_name', ''),
+                usage_context=submission_data.get('usage_context', ''),
+                added_by=submitter
+            )
+        elif task.task_type == 'migration_supplement' and task.related_person:
+            MigrationInfo.objects.create(
+                person=task.related_person,
+                from_place=submission_data.get('from_place', ''),
+                to_place=submission_data.get('to_place', ''),
+                move_year=submission_data.get('move_year'),
+                reason=submission_data.get('reason', ''),
+                added_by=submitter
+            )
+        elif task.task_type == 'identity_confirm' and task.related_photo:
+            person_id = submission_data.get('person_id')
+            if person_id:
+                extra = task.extra_context or {}
+                pip_id = extra.get('person_in_photo_id')
+                if pip_id:
+                    pip = PersonInPhoto.objects.filter(id=pip_id).first()
+                    if pip:
+                        pip.person_id = person_id
+                        pip.added_by = submitter
+                        pip.save()
+                else:
+                    PersonInPhoto.objects.create(
+                        photo=task.related_photo,
+                        person_id=person_id,
+                        position_note=submission_data.get('position_note', ''),
+                        added_by=submitter
+                    )
+        elif task.task_type == 'event_narration':
+            if task.related_photo:
+                task.related_photo.description = submission_data.get('description', task.related_photo.description)
+                task.related_photo.save()
+            elif task.related_memory:
+                task.related_memory.content = submission_data.get('content', task.related_memory.content)
+                task.related_memory.save()
+        elif task.task_type == 'relation_verify' and task.related_person:
+            to_person_id = submission_data.get('to_person_id')
+            relation_type = submission_data.get('relation_type')
+            if to_person_id and relation_type:
+                Relationship.objects.create(
+                    from_person=task.related_person,
+                    to_person_id=to_person_id,
+                    relation_type=relation_type,
+                    relation_note=submission_data.get('relation_note', ''),
+                    added_by=submitter
+                )
+        return True
+    except Exception:
+        return False
+
+
+def _create_confirmation_for_submission(task, submission, conflict_desc):
+    conf = FamilyConfirmation.objects.create(
+        confirm_type='person' if task.source_type == 'person' else
+                     'photo_info' if task.source_type == 'photo' else 'memory',
+        related_person=task.related_person,
+        related_photo=task.related_photo,
+        related_memory=task.related_memory,
+        title=f'{task.get_task_type_display()}信息确认：{task.title}',
+        detail=f'提交人：{submission.submitter}\n提交内容：{submission.submission_text or str(submission.submission_data)}\n冲突说明：{conflict_desc}',
+        proposer=submission.submitter,
+        status='pending'
+    )
+    return conf
+
+
+class CollectionTaskViewSet(viewsets.ModelViewSet):
+    queryset = CollectionTask.objects.all()
+    serializer_class = CollectionTaskSerializer
+    filterset_fields = ['task_type', 'source_type', 'status', 'assign_type', 'assigned_to', 'claimed_by',
+                        'related_photo', 'related_person', 'related_memory']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.annotate(
+            submission_count=Count('submissions', distinct=True)
+        )
+
+    @action(detail=False, methods=['get'])
+    def my_tasks(self, request):
+        claimant = request.query_params.get('claimed_by', '')
+        status_filter = request.query_params.get('status', '')
+        qs = self.get_queryset()
+        if claimant:
+            qs = qs.filter(
+                Q(claimed_by=claimant) | Q(assigned_to=claimant)
+            )
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def claim(self, request, pk=None):
+        task = self.get_object()
+        if task.status not in ['open', 'assigned']:
+            return Response({'error': '该任务状态不允许认领'}, status=status.HTTP_400_BAD_REQUEST)
+        if task.assign_type == 'specific' and task.assigned_to:
+            claimant = request.data.get('claimed_by', '')
+            if claimant and task.assigned_to != claimant:
+                return Response({'error': f'此任务仅分派给「{task.assigned_to}」'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskClaimSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        task.claimed_by = serializer.validated_data['claimed_by']
+        task.claimed_at = timezone.now()
+        task.status = 'in_progress'
+        task.save()
+        _create_contribution(
+            task.claimed_by, 'task_claim',
+            related_task=task, description=f'认领任务：{task.title}'
+        )
+        return Response({'status': 'claimed', 'task': CollectionTaskSerializer(task).data})
+
+    @action(detail=True, methods=['post'])
+    def unclaim(self, request, pk=None):
+        task = self.get_object()
+        if task.status != 'in_progress':
+            return Response({'error': '该任务状态不允许放弃认领'}, status=status.HTTP_400_BAD_REQUEST)
+        task.claimed_by = ''
+        task.claimed_at = None
+        task.status = 'assigned' if task.assign_type == 'specific' and task.assigned_to else 'open'
+        task.save()
+        return Response({'status': 'unclaimed'})
+
+    @action(detail=True, methods=['post'])
+    def submit(self, request, pk=None):
+        task = self.get_object()
+        if task.status not in ['in_progress', 'assigned']:
+            return Response({'error': '该任务状态不允许提交'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskSubmitSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        has_conflict, conflict_desc = _check_for_conflict(task, data['submission_data'])
+        submission = TaskSubmission.objects.create(
+            task=task,
+            submitter=data['submitter'],
+            submission_data=data['submission_data'],
+            submission_text=data['submission_text'],
+            has_conflict=has_conflict,
+            conflict_description=conflict_desc,
+            status='conflicted' if has_conflict else 'pending'
+        )
+        task.status = 'conflicted' if has_conflict else 'submitted'
+        task.save()
+        _create_contribution(
+            data['submitter'], 'task_submit',
+            related_task=task, related_person=task.related_person,
+            related_photo=task.related_photo, related_memory=task.related_memory,
+            description=f'提交任务补注：{task.title}'
+        )
+        if has_conflict:
+            conf = _create_confirmation_for_submission(task, submission, conflict_desc)
+            submission.related_confirmation = conf
+            submission.save()
+            try:
+                cv = ConflictVersion.objects.create(
+                    related_person=task.related_person,
+                    related_photo=task.related_photo,
+                    related_memory=task.related_memory,
+                    conflict_field='other',
+                    version_a=str(task.extra_context or '原有信息'),
+                    version_a_author=task.created_by or '原数据',
+                    version_b=str(data['submission_data']) + (data['submission_text'] or ''),
+                    version_b_author=data['submitter'],
+                    description=conflict_desc,
+                    status='open'
+                )
+                submission.related_conflict = cv
+                submission.save()
+                conf.related_conflict = cv
+                conf.save()
+            except Exception:
+                pass
+        return Response({
+            'status': 'submitted',
+            'has_conflict': has_conflict,
+            'submission': TaskSubmissionSerializer(submission).data
+        })
+
+    @action(detail=True, methods=['post'])
+    def review(self, request, pk=None):
+        task = self.get_object()
+        if task.status not in ['submitted']:
+            return Response({'error': '该任务状态不允许审核'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskReviewSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        last_submission = task.submissions.order_by('-created_at').first()
+        if not last_submission:
+            return Response({'error': '未找到提交记录'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if data['action'] == 'approve':
+            success = _apply_submission_data(task, last_submission.submission_data, last_submission.submitter)
+            if not success:
+                return Response({'error': '应用提交数据失败'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            last_submission.status = 'approved'
+            last_submission.reviewer = data['reviewer']
+            last_submission.review_comment = data['comment']
+            last_submission.reviewed_at = timezone.now()
+            last_submission.save()
+            task.status = 'completed'
+            task.save()
+            _create_contribution(
+                last_submission.submitter, 'task_approved',
+                related_task=task, related_person=task.related_person,
+                description=f'任务补注审核通过：{task.title}'
+            )
+            _create_contribution(
+                data['reviewer'], 'review_pass',
+                related_task=task, description=f'审核通过任务：{task.title}'
+            )
+        elif data['action'] == 'reject':
+            last_submission.status = 'rejected'
+            last_submission.reviewer = data['reviewer']
+            last_submission.review_comment = data['comment']
+            last_submission.reviewed_at = timezone.now()
+            last_submission.save()
+            task.status = 'rejected'
+            task.save()
+        elif data['action'] == 'to_conflict':
+            has_conflict = True
+            conflict_desc = data['comment'] or '审核员判定存在信息冲突'
+            last_submission.status = 'conflicted'
+            last_submission.has_conflict = has_conflict
+            last_submission.conflict_description = conflict_desc
+            last_submission.reviewer = data['reviewer']
+            last_submission.review_comment = data['comment']
+            last_submission.reviewed_at = timezone.now()
+            last_submission.save()
+            task.status = 'conflicted'
+            task.save()
+            conf = _create_confirmation_for_submission(task, last_submission, conflict_desc)
+            last_submission.related_confirmation = conf
+            last_submission.save()
+
+        return Response({
+            'status': 'reviewed',
+            'action': data['action'],
+            'task': CollectionTaskSerializer(task).data,
+            'submission': TaskSubmissionSerializer(last_submission).data
+        })
+
+    @action(detail=True, methods=['get'])
+    def submissions(self, request, pk=None):
+        task = self.get_object()
+        subs = TaskSubmission.objects.filter(task=task).order_by('-created_at')
+        serializer = TaskSubmissionSerializer(subs, many=True)
+        return Response(serializer.data)
+
+
+class TaskSubmissionViewSet(viewsets.ModelViewSet):
+    queryset = TaskSubmission.objects.all()
+    serializer_class = TaskSubmissionSerializer
+    filterset_fields = ['status', 'submitter', 'task', 'has_conflict']
+
+
+class ContributionViewSet(viewsets.ModelViewSet):
+    queryset = Contribution.objects.all()
+    serializer_class = ContributionSerializer
+    filterset_fields = ['contributor', 'contribution_type']
+
+
+class TaskStatsView(APIView):
+    def get(self, request):
+        contributor = request.query_params.get('contributor', '')
+        total_tasks = CollectionTask.objects.count()
+        open_tasks = CollectionTask.objects.filter(status='open').count()
+        assigned_tasks = CollectionTask.objects.filter(status='assigned').count()
+        in_progress_tasks = CollectionTask.objects.filter(status='in_progress').count()
+        submitted_tasks = CollectionTask.objects.filter(status='submitted').count()
+        completed_tasks = CollectionTask.objects.filter(status='completed').count()
+        rejected_tasks = CollectionTask.objects.filter(status='rejected').count()
+        conflicted_tasks = CollectionTask.objects.filter(status='conflicted').count()
+
+        total_submissions = TaskSubmission.objects.count()
+        approved_submissions = TaskSubmission.objects.filter(status='approved').count()
+        conflicted_submissions = TaskSubmission.objects.filter(status='conflicted').count()
+
+        closed_total = completed_tasks + rejected_tasks + conflicted_tasks
+        completion_rate = round(completed_tasks / closed_total * 100, 1) if closed_total > 0 else 0.0
+        conflict_rate = round(conflicted_submissions / total_submissions * 100, 1) if total_submissions > 0 else 0.0
+
+        contributions_agg = list(
+            Contribution.objects.values('contributor')
+            .annotate(
+                total_points=Sum('points'),
+                task_count=Count('id', filter=Q(contribution_type__startswith='task_')),
+                task_approved_count=Count('id', filter=Q(contribution_type='task_approved'))
+            )
+            .order_by('-total_points')[:10]
+        )
+        leaderboard = []
+        for c in contributions_agg:
+            types_detail = list(
+                Contribution.objects.filter(contributor=c['contributor'])
+                .values('contribution_type')
+                .annotate(count=Count('id'))
+                .order_by('-count')
+            )
+            leaderboard.append({
+                **c,
+                'contribution_detail': [
+                    {'type': t['contribution_type'],
+                     'type_display': dict(Contribution.TYPE_CHOICES).get(t['contribution_type'], t['contribution_type']),
+                     'count': t['count']}
+                    for t in types_detail
+                ]
+            })
+
+        top_task_persons_qs = list(
+            CollectionTask.objects.values('related_person__id', 'related_person__name')
+            .filter(related_person__isnull=False)
+            .annotate(count=Count('id'))
+            .order_by('-count')[:10]
+        )
+        top_task_persons = [
+            {'person_id': t['related_person__id'], 'name': t['related_person__name'], 'task_count': t['count']}
+            for t in top_task_persons_qs if t['related_person__name']
+        ]
+
+        task_type_qs = list(
+            CollectionTask.objects.values('task_type')
+            .annotate(count=Count('id'), completed=Count('id', filter=Q(status='completed')))
+            .order_by('-count')
+        )
+        task_type_distribution = [
+            {'type': t['task_type'],
+             'type_display': dict(CollectionTask.TASK_TYPE_CHOICES).get(t['task_type'], t['task_type']),
+             'count': t['count'], 'completed': t['completed']}
+            for t in task_type_qs
+        ]
+
+        my_contribution = {}
+        if contributor:
+            contribs = Contribution.objects.filter(contributor=contributor)
+            my_contribution = {
+                'contributor': contributor,
+                'total_points': contribs.aggregate(total=Sum('points'))['total'] or 0,
+                'total_count': contribs.count(),
+                'by_type': list(
+                    contribs.values('contribution_type')
+                    .annotate(count=Count('id'), points=Sum('points'))
+                    .order_by('-points')
+                ),
+                'recent': list(contribs[:20].values(
+                    'id', 'contribution_type', 'description', 'points', 'created_at'
+                ))
+            }
+
+        data = {
+            'total_tasks': total_tasks,
+            'open_tasks': open_tasks + assigned_tasks,
+            'assigned_tasks': assigned_tasks,
+            'in_progress_tasks': in_progress_tasks,
+            'submitted_tasks': submitted_tasks,
+            'completed_tasks': completed_tasks,
+            'rejected_tasks': rejected_tasks,
+            'conflicted_tasks': conflicted_tasks,
+            'completion_rate': completion_rate,
+            'conflict_rate': conflict_rate,
+            'total_submissions': total_submissions,
+            'approved_submissions': approved_submissions,
+            'contribution_leaderboard': leaderboard,
+            'top_task_persons': top_task_persons,
+            'task_type_distribution': task_type_distribution,
+            'my_contribution': my_contribution,
+        }
+        return Response(data)
+
+
+class GenerateTasksView(APIView):
+    def post(self, request):
+        serializer = GenerateTasksSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        created_tasks = []
+        source_type = data['source_type']
+        task_types = data['task_types']
+
+        def _build_task(tt, obj, st, extra=None):
+            if task_types and tt not in task_types:
+                return None
+            obj_title = ''
+            if hasattr(obj, 'title'):
+                obj_title = obj.title
+            elif hasattr(obj, 'name'):
+                obj_title = obj.name
+
+            title_map = {
+                'identity_confirm': f'确认照片人物身份：{obj_title}',
+                'old_name_supplement': f'补充旧称/别名：{obj_title}',
+                'migration_supplement': f'补充迁居信息：{obj_title}',
+                'event_narration': f'记录事件背景口述：{obj_title}',
+                'relation_verify': f'校验亲属关系：{obj_title}',
+            }
+            desc_map = {
+                'identity_confirm': '请确认照片中待标注人物的真实身份，与已有人物档案关联。',
+                'old_name_supplement': '请补充该人物的乳名、旧时称呼、曾用名、别名等信息。',
+                'migration_supplement': '请补充该人物的迁居历史，包括迁出地、迁入地、年份及原因。',
+                'event_narration': '请根据老人口述记录照片或回忆背后的事件背景、故事细节。',
+                'relation_verify': '请校验或补充该人物与其他家族成员的亲属关系。',
+            }
+            task = CollectionTask(
+                task_type=tt,
+                title=title_map.get(tt, obj_title),
+                description=desc_map.get(tt, ''),
+                source_type=st,
+                extra_context=extra or {},
+                assign_type=data['assign_type'],
+                assigned_to=data.get('assigned_to', ''),
+                created_by=data.get('created_by', '系统'),
+                priority=10 if tt in ['identity_confirm', 'event_narration'] else 5
+            )
+            if st == 'photo':
+                task.related_photo = obj
+            elif st == 'person':
+                task.related_person = obj
+            elif st == 'memory':
+                task.related_memory = obj
+            if data['assign_type'] == 'specific' and data.get('assigned_to'):
+                task.status = 'assigned'
+            return task
+
+        objs = []
+        if source_type == 'photo':
+            if data.get('source_id'):
+                try:
+                    objs = [(Photo.objects.get(id=data['source_id']), 'photo')]
+                except Photo.DoesNotExist:
+                    return Response({'error': '照片不存在'}, status=404)
+            else:
+                objs = [(p, 'photo') for p in Photo.objects.filter(status__in=['archived', 'annotating'])]
+        elif source_type == 'person':
+            if data.get('source_id'):
+                try:
+                    objs = [(Person.objects.get(id=data['source_id']), 'person')]
+                except Person.DoesNotExist:
+                    return Response({'error': '人物不存在'}, status=404)
+            else:
+                objs = [(p, 'person') for p in Person.objects.filter(status__in=['pending', 'confirmed'])]
+        elif source_type == 'memory':
+            if data.get('source_id'):
+                try:
+                    objs = [(MemoryFragment.objects.get(id=data['source_id']), 'memory')]
+                except MemoryFragment.DoesNotExist:
+                    return Response({'error': '回忆不存在'}, status=404)
+            else:
+                objs = [(m, 'memory') for m in MemoryFragment.objects.filter(status__in=['draft', 'submitted'])]
+        elif source_type == 'all':
+            objs = [(p, 'photo') for p in Photo.objects.filter(status__in=['archived', 'annotating'])] + \
+                   [(p, 'person') for p in Person.objects.filter(status__in=['pending', 'confirmed'])] + \
+                   [(m, 'memory') for m in MemoryFragment.objects.filter(status__in=['draft', 'submitted'])]
+
+        for obj, st in objs:
+            if st == 'photo':
+                tts = ['identity_confirm', 'event_narration']
+                if task_types:
+                    tts = [t for t in tts if t in task_types]
+                for tt in tts:
+                    exists = CollectionTask.objects.filter(
+                        source_type=st, related_photo=obj, task_type=tt,
+                        status__in=['open', 'assigned', 'in_progress', 'submitted']
+                    ).exists()
+                    if exists:
+                        continue
+                    t = _build_task(tt, obj, st)
+                    if t:
+                        t.save()
+                        created_tasks.append(t)
+            elif st == 'person':
+                tts = ['old_name_supplement', 'migration_supplement', 'relation_verify']
+                if task_types:
+                    tts = [t for t in tts if t in task_types]
+                for tt in tts:
+                    exists = CollectionTask.objects.filter(
+                        source_type=st, related_person=obj, task_type=tt,
+                        status__in=['open', 'assigned', 'in_progress', 'submitted']
+                    ).exists()
+                    if exists:
+                        continue
+                    t = _build_task(tt, obj, st)
+                    if t:
+                        t.save()
+                        created_tasks.append(t)
+            elif st == 'memory':
+                tts = ['event_narration']
+                if task_types:
+                    tts = [t for t in tts if t in task_types]
+                for tt in tts:
+                    exists = CollectionTask.objects.filter(
+                        source_type=st, related_memory=obj, task_type=tt,
+                        status__in=['open', 'assigned', 'in_progress', 'submitted']
+                    ).exists()
+                    if exists:
+                        continue
+                    t = _build_task(tt, obj, st)
+                    if t:
+                        t.save()
+                        created_tasks.append(t)
+
+        return Response({
+            'status': 'created',
+            'count': len(created_tasks),
+            'tasks': CollectionTaskSerializer(created_tasks, many=True).data
+        })
+
+
+class ContributionRankingView(APIView):
+    def get(self, request):
+        limit = int(request.query_params.get('limit', 20))
+        contribs = list(
+            Contribution.objects.values('contributor')
+            .annotate(
+                total_points=Sum('points'),
+                task_count=Count('id', filter=Q(contribution_type__startswith='task_')),
+                task_approved_count=Count('id', filter=Q(contribution_type='task_approved')),
+                clue_count=Count('id', filter=Q(contribution_type='clue_claim')),
+                memory_count=Count('id', filter=Q(contribution_type='memory_add')),
+            )
+            .order_by('-total_points')[:limit]
+        )
+        return Response({
+            'count': len(contribs),
+            'results': contribs
+        })
+
+
 class StatsView(APIView):
     def get(self, request):
         total_photos = Photo.objects.count()
@@ -525,6 +1127,61 @@ class StatsView(APIView):
                 'single_photo_clues': 0,
             }
 
+        total_tasks = CollectionTask.objects.count()
+        open_tasks = CollectionTask.objects.filter(status__in=['open', 'assigned']).count()
+        in_progress_tasks = CollectionTask.objects.filter(status='in_progress').count()
+        submitted_tasks = CollectionTask.objects.filter(status='submitted').count()
+        completed_tasks = CollectionTask.objects.filter(status='completed').count()
+        rejected_tasks = CollectionTask.objects.filter(status='rejected').count()
+        conflicted_tasks = CollectionTask.objects.filter(status='conflicted').count()
+        total_submissions = TaskSubmission.objects.count()
+        approved_submissions = TaskSubmission.objects.filter(status='approved').count()
+        closed_total = completed_tasks + rejected_tasks + conflicted_tasks
+        completion_rate = round(completed_tasks / closed_total * 100, 1) if closed_total > 0 else 0.0
+        conflict_total = total_submissions
+        conflict_turned = TaskSubmission.objects.filter(status='conflicted').count()
+        conflict_confirm_rate = round(conflict_turned / conflict_total * 100, 1) if conflict_total > 0 else 0.0
+
+        top_task_persons_qs = list(
+            CollectionTask.objects.values('related_person__id', 'related_person__name')
+            .filter(related_person__isnull=False)
+            .annotate(count=Count('id'))
+            .order_by('-count')[:10]
+        )
+        top_task_persons = [
+            {'person_id': t['related_person__id'], 'name': t['related_person__name'], 'task_count': t['count']}
+            for t in top_task_persons_qs if t['related_person__name']
+        ]
+
+        contrib_agg = list(
+            Contribution.objects.values('contributor')
+            .annotate(total_count=Count('id'), total_points=Sum('points'),
+                      approved_count=Count('id', filter=Q(contribution_type='task_approved')))
+            .order_by('-total_points')[:10]
+        )
+
+        task_stats = {
+            'total_tasks': total_tasks,
+            'open_tasks': open_tasks,
+            'in_progress_tasks': in_progress_tasks,
+            'submitted_tasks': submitted_tasks,
+            'completed_tasks': completed_tasks,
+            'rejected_tasks': rejected_tasks,
+            'conflicted_tasks': conflicted_tasks,
+            'total_submissions': total_submissions,
+            'approved_submissions': approved_submissions,
+            'completion_rate': completion_rate,
+            'conflict_confirm_rate': conflict_confirm_rate,
+            'top_task_persons': top_task_persons,
+        }
+
+        contribution_stats = {
+            'total_contributions': Contribution.objects.count(),
+            'total_contributors': Contribution.objects.values('contributor').distinct().count(),
+            'total_points': Contribution.objects.aggregate(total=Sum('points'))['total'] or 0,
+            'leaderboard': contrib_agg,
+        }
+
         data = {
             'total_photos': total_photos,
             'total_persons': total_persons,
@@ -536,6 +1193,8 @@ class StatsView(APIView):
             'top_persons': top_persons,
             'annotation_completion': annotation_completion,
             'clue_stats': clue_stats,
+            'task_stats': task_stats,
+            'contribution_stats': contribution_stats,
         }
         serializer = StatsSerializer(data)
         return Response(serializer.data)

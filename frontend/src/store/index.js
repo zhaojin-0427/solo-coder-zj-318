@@ -99,9 +99,67 @@ export const CONFLICT_FIELD_OPTIONS = [
   { value: 'other', label: '其他信息' }
 ]
 
+export const TASK_TYPE_OPTIONS = [
+  { value: 'identity_confirm', label: '人物身份确认', icon: 'User', color: '#3B82F6' },
+  { value: 'old_name_supplement', label: '旧称/别名补充', icon: 'EditPen', color: '#F59E0B' },
+  { value: 'migration_supplement', label: '迁居信息补充', icon: 'Location', color: '#8B5CF6' },
+  { value: 'event_narration', label: '事件背景口述', icon: 'ChatDotRound', color: '#EC4899' },
+  { value: 'relation_verify', label: '亲属关系校验', icon: 'Connection', color: '#10B981' }
+]
+
+export const TASK_SOURCE_OPTIONS = [
+  { value: 'photo', label: '照片', icon: 'Picture' },
+  { value: 'person', label: '人物', icon: 'User' },
+  { value: 'memory', label: '回忆片段', icon: 'Document' }
+]
+
+export const TASK_STATUS_OPTIONS = [
+  { value: 'open', label: '待认领', type: 'info', color: '#6B7280' },
+  { value: 'assigned', label: '已分派', type: 'warning', color: '#F59E0B' },
+  { value: 'in_progress', label: '处理中', type: 'warning', color: '#3B82F6' },
+  { value: 'submitted', label: '待审核', type: 'warning', color: '#8B5CF6' },
+  { value: 'completed', label: '已完成', type: 'success', color: '#10B981' },
+  { value: 'rejected', label: '已驳回', type: 'danger', color: '#EF4444' },
+  { value: 'conflicted', label: '进入确认台', type: 'danger', color: '#DC2626' }
+]
+
+export const TASK_ASSIGN_OPTIONS = [
+  { value: 'family', label: '全家开放' },
+  { value: 'specific', label: '指定人员' }
+]
+
+export const SUBMISSION_STATUS_OPTIONS = [
+  { value: 'pending', label: '待审核', type: 'warning' },
+  { value: 'approved', label: '已通过', type: 'success' },
+  { value: 'rejected', label: '已驳回', type: 'danger' },
+  { value: 'conflicted', label: '进入确认台', type: 'danger' }
+]
+
+export const CONTRIBUTION_TYPE_OPTIONS = [
+  { value: 'task_submit', label: '任务提交', icon: 'Upload', points: 10 },
+  { value: 'task_claim', label: '任务认领', icon: 'Check', points: 5 },
+  { value: 'task_approved', label: '任务审核通过', icon: 'CircleCheckFilled', points: 30 },
+  { value: 'clue_claim', label: '线索认领', icon: 'Search', points: 20 },
+  { value: 'person_add', label: '人物建档', icon: 'UserPlus', points: 25 },
+  { value: 'memory_add', label: '回忆添加', icon: 'Plus', points: 35 },
+  { value: 'photo_annotate', label: '照片补注', icon: 'Edit', points: 15 },
+  { value: 'review_pass', label: '审核通过', icon: 'Promotion', points: 20 },
+  { value: 'vote_participate', label: '参与投票', icon: 'Star', points: 5 }
+]
+
+export const CURRENT_USER = '家属李明'
+
 export const getOptionLabel = (options, value) => {
   const opt = options.find(o => o.value === value)
   return opt?.label || value
+}
+
+export const getTaskTypeInfo = (value) => {
+  return TASK_TYPE_OPTIONS.find(o => o.value === value) || TASK_TYPE_OPTIONS[0]
+}
+
+export const getTaskStatusInfo = (value) => {
+  return TASK_STATUS_OPTIONS.find(o => o.value === value) || TASK_STATUS_OPTIONS[0]
 }
 
 export const photoPlaceholder = (era, scene) => {

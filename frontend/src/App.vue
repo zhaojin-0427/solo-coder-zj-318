@@ -71,7 +71,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  Picture, User, Document, CircleCheck, DataAnalysis, Search
+  Picture, User, Document, CircleCheck, DataAnalysis, Search, List
 } from '@element-plus/icons-vue'
 import FlowSteps from '@/components/FlowSteps.vue'
 
@@ -79,8 +79,9 @@ const route = useRoute()
 
 const menuItems = [
   { path: '/photos', title: '照片归档', icon: 'Picture' },
-  { path: '/persons', title: '人物关系补注', icon: 'User' },
+  { path: '/tasks', title: '采集任务', icon: 'List' },
   { path: '/clues', title: '人物线索管理', icon: 'Search' },
+  { path: '/persons', title: '人物关系补注', icon: 'User' },
   { path: '/memories', title: '回忆片段整理', icon: 'Document' },
   { path: '/confirm', title: '家庭确认台', icon: 'CircleCheck' },
   { path: '/stats', title: '数据统计', icon: 'DataAnalysis' }

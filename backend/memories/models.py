@@ -280,3 +280,118 @@ class FamilyConfirmation(models.Model):
 
     def __str__(self):
         return f'{self.get_confirm_type_display()}-{self.title}'
+
+
+class CollectionTask(models.Model):
+    TASK_TYPE_CHOICES = [
+        ('identity_confirm', '人物身份确认'),
+        ('old_name_supplement', '旧称/别名补充'),
+        ('migration_supplement', '迁居信息补充'),
+        ('event_narration', '事件背景口述'),
+        ('relation_verify', '亲属关系校验'),
+    ]
+    SOURCE_TYPE_CHOICES = [
+        ('photo', '照片'),
+        ('person', '人物'),
+        ('memory', '回忆片段'),
+    ]
+    STATUS_CHOICES = [
+        ('open', '待认领'),
+        ('assigned', '已分派待完成'),
+        ('in_progress', '处理中'),
+        ('submitted', '待审核'),
+        ('completed', '已完成'),
+        ('rejected', '已驳回'),
+        ('conflicted', '进入确认台'),
+    ]
+    ASSIGN_TYPE_CHOICES = [
+        ('family', '全家开放'),
+        ('specific', '指定人员'),
+    ]
+
+    task_type = models.CharField('任务类型', max_length=30, choices=TASK_TYPE_CHOICES)
+    title = models.CharField('任务标题', max_length=300)
+    description = models.TextField('任务描述', blank=True)
+    source_type = models.CharField('来源类型', max_length=20, choices=SOURCE_TYPE_CHOICES)
+    related_photo = models.ForeignKey(Photo, on_delete=models.CASCADE, null=True, blank=True, related_name='tasks')
+    related_person = models.ForeignKey(Person, on_delete=models.CASCADE, null=True, blank=True, related_name='tasks')
+    related_memory = models.ForeignKey(MemoryFragment, on_delete=models.CASCADE, null=True, blank=True, related_name='tasks')
+    extra_context = models.JSONField('补充上下文', default=dict, blank=True, help_text='如位置信息、人物ID等')
+    assign_type = models.CharField('分派方式', max_length=20, choices=ASSIGN_TYPE_CHOICES, default='family')
+    assigned_to = models.CharField('分派对象', max_length=100, blank=True, help_text='指定家属时填写姓名')
+    claimed_by = models.CharField('认领人', max_length=100, blank=True)
+    status = models.CharField('任务状态', max_length=20, choices=STATUS_CHOICES, default='open')
+    priority = models.IntegerField('优先级', default=0, help_text='数值越大优先级越高')
+    created_by = models.CharField('创建人', max_length=100, default='系统')
+    due_date = models.DateTimeField('截止时间', null=True, blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    claimed_at = models.DateTimeField('认领时间', null=True, blank=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        db_table = 'collection_task'
+        ordering = ['-priority', '-created_at']
+
+    def __str__(self):
+        return f'{self.get_task_type_display()}-{self.title}'
+
+
+class TaskSubmission(models.Model):
+    STATUS_CHOICES = [
+        ('pending', '待审核'),
+        ('approved', '已通过'),
+        ('rejected', '已驳回'),
+        ('conflicted', '进入确认台'),
+    ]
+
+    task = models.ForeignKey(CollectionTask, on_delete=models.CASCADE, related_name='submissions', verbose_name='所属任务')
+    submitter = models.CharField('提交人', max_length=100)
+    submission_data = models.JSONField('提交内容数据', default=dict, help_text='根据任务类型存储不同结构的数据')
+    submission_text = models.TextField('文本内容', blank=True, help_text='口述或长文本内容')
+    has_conflict = models.BooleanField('是否有冲突', default=False)
+    conflict_description = models.TextField('冲突说明', blank=True)
+    status = models.CharField('审核状态', max_length=20, choices=STATUS_CHOICES, default='pending')
+    reviewer = models.CharField('审核人', max_length=100, blank=True)
+    review_comment = models.TextField('审核意见', blank=True)
+    reviewed_at = models.DateTimeField('审核时间', null=True, blank=True)
+    related_conflict = models.ForeignKey(ConflictVersion, on_delete=models.SET_NULL, null=True, blank=True, related_name='submissions')
+    related_confirmation = models.ForeignKey(FamilyConfirmation, on_delete=models.SET_NULL, null=True, blank=True, related_name='submissions')
+    created_at = models.DateTimeField('提交时间', auto_now_add=True)
+
+    class Meta:
+        db_table = 'task_submission'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.task}-{self.submitter}-{self.get_status_display()}'
+
+
+class Contribution(models.Model):
+    TYPE_CHOICES = [
+        ('task_submit', '任务提交'),
+        ('task_claim', '任务认领'),
+        ('task_approved', '任务审核通过'),
+        ('clue_claim', '线索认领'),
+        ('person_add', '人物建档'),
+        ('memory_add', '回忆添加'),
+        ('photo_annotate', '照片补注'),
+        ('review_pass', '审核通过'),
+        ('vote_participate', '参与投票'),
+    ]
+
+    contributor = models.CharField('贡献人', max_length=100)
+    contribution_type = models.CharField('贡献类型', max_length=30, choices=TYPE_CHOICES)
+    related_task = models.ForeignKey(CollectionTask, on_delete=models.SET_NULL, null=True, blank=True, related_name='contributions')
+    related_person = models.ForeignKey(Person, on_delete=models.SET_NULL, null=True, blank=True, related_name='contributions')
+    related_photo = models.ForeignKey(Photo, on_delete=models.SET_NULL, null=True, blank=True, related_name='contributions')
+    related_memory = models.ForeignKey(MemoryFragment, on_delete=models.SET_NULL, null=True, blank=True, related_name='contributions')
+    description = models.CharField('贡献描述', max_length=500, blank=True)
+    points = models.IntegerField('贡献积分', default=10)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        db_table = 'contribution'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.contributor}-{self.get_contribution_type_display()}-{self.points}分'

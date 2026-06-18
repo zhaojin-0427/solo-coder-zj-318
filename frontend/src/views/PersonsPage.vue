@@ -108,8 +108,45 @@
                 <el-button size="small" type="primary" class="btn-primary-warm" @click="showAddRelation = true">
                   <el-icon><Link /></el-icon>添加亲属关系
                 </el-button>
+                <el-dropdown>
+                  <el-button size="small" type="warning" plain>
+                    <el-icon><List /></el-icon>采集任务<el-icon><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item @click="openCreateTask('old_name_supplement')">🧓 发起别名补注</el-dropdown-item>
+                      <el-dropdown-item @click="openCreateTask('migration_supplement')">🏠 发起迁居补注</el-dropdown-item>
+                      <el-dropdown-item @click="openCreateTask('relation_verify')">🔗 发起关系校验</el-dropdown-item>
+                      <el-dropdown-item divided @click="goToTasks">查看全部任务</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </div>
             </div>
+          </div>
+
+          <div class="task-summary-bar" v-if="relatedTasks.length">
+            <el-icon color="#D2691E"><Warning /></el-icon>
+            <span>该人物有 <b style="color:#D2691E">{{ relatedTasks.length }}</b> 项待补注采集任务</span>
+            <div class="task-tags-inline">
+              <el-tag v-for="g in taskGroupCount" :key="g.type" size="small" :type="g.tagType" effect="light">
+                {{ getTaskTypeInfo(g.type).label }} {{ g.count }}
+              </el-tag>
+            </div>
+            <el-button size="small" text type="primary" @click="showTasksPanel = !showTasksPanel">
+              {{ showTasksPanel ? '收起' : '展开' }} <el-icon>{{ showTasksPanel ? 'ArrowUp' : 'ArrowDown' }}</el-icon>
+            </el-button>
+          </div>
+
+          <div class="tasks-panel" v-if="showTasksPanel">
+            <div v-for="t in relatedTasks" :key="t.id" class="task-panel-item" @click="goToTaskDetail(t)">
+              <el-tag :type="getTaskTypeInfo(t.task_type).tagType" size="small" effect="light">
+                {{ getTaskTypeInfo(t.task_type).icon }} {{ getTaskTypeInfo(t.task_type).label }}
+              </el-tag>
+              <span class="tpi-title">{{ t.title }}</span>
+              <el-tag :type="getTaskStatusInfo(t.status).type" size="small">{{ getTaskStatusInfo(t.status).label }}</el-tag>
+            </div>
+            <el-empty v-if="!relatedTasks.length" description="暂无采集任务" :image-size="60" />
           </div>
 
           <el-tabs v-model="detailTab">
@@ -340,17 +377,62 @@
         <el-button type="primary" class="btn-primary-warm" @click="submitAddRelation">保存关系</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showTaskDialog" title="发起采集任务" width="560px" destroy-on-close>
+      <el-form :model="taskForm" label-width="100px">
+        <el-form-item label="任务类型" required>
+          <el-select v-model="taskForm.task_type" style="width: 100%">
+            <el-option
+              v-for="opt in TASK_TYPE_OPTIONS.filter(t => ['old_name_supplement', 'migration_supplement', 'relation_verify'].includes(t.value))"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="任务标题" required>
+          <el-input v-model="taskForm.title" />
+        </el-form-item>
+        <el-form-item label="任务描述">
+          <el-input v-model="taskForm.description" type="textarea" :rows="4" />
+        </el-form-item>
+        <el-form-item label="分派方式">
+          <el-radio-group v-model="taskForm.assign_type">
+            <el-radio value="open">全家认领</el-radio>
+            <el-radio value="assigned">指定家属</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="指定家属" v-if="taskForm.assign_type === 'assigned'">
+          <el-select v-model="taskForm.assigned_to" filterable placeholder="选择一位家属" style="width: 100%">
+            <el-option v-for="p in otherPersons" :key="p.id" :label="p.name" :value="p.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-select v-model="taskForm.priority" style="width: 100%">
+            <el-option label="普通" value="normal" />
+            <el-option label="较高" value="high" />
+            <el-option label="紧急" value="urgent" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showTaskDialog = false">取消</el-button>
+        <el-button type="primary" class="btn-primary-warm" @click="submitCreateTask">创建任务</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  User, Search, Plus, UserFilled, Location, Edit, Link, ArrowDown, Right
+  User, Search, Plus, UserFilled, Location, Edit, Link, ArrowDown, Right,
+  List, Warning, ArrowUp
 } from '@element-plus/icons-vue'
-import { persons as personsApi, relationships as relApi, aliases as aliasApi, migrations as migApi, personInPhoto as pipApi, photos as photosApi } from '@/api'
-import { RELATION_OPTIONS, STATUS_OPTIONS, ERA_OPTIONS, SCENE_OPTIONS, getOptionLabel, photoPlaceholder } from '@/store'
+import { persons as personsApi, relationships as relApi, aliases as aliasApi, migrations as migApi, personInPhoto as pipApi, photos as photosApi, tasks as tasksApi } from '@/api'
+import { RELATION_OPTIONS, STATUS_OPTIONS, ERA_OPTIONS, SCENE_OPTIONS, getOptionLabel, photoPlaceholder, TASK_TYPE_OPTIONS, TASK_STATUS_OPTIONS, getTaskTypeInfo, getTaskStatusInfo, CURRENT_USER } from '@/store'
 
 const loading = ref(false)
 const personList = ref([])
@@ -360,6 +442,11 @@ const currentPerson = ref(null)
 const detailTab = ref('alias')
 const relationships = ref([])
 const personPhotos = ref([])
+const relatedTasks = ref([])
+const showTasksPanel = ref(false)
+const showTaskDialog = ref(false)
+const taskForm = ref({ task_type: '', title: '', description: '', assign_type: 'open', assigned_to: '', priority: 'normal' })
+const router = useRouter()
 
 const showAddPerson = ref(false)
 const showEditPerson = ref(false)
@@ -396,6 +483,18 @@ const filteredPersons = computed(() => {
 const otherPersons = computed(() => personList.value.filter(p => p.id !== currentPerson.value?.id))
 const sortedMigrations = computed(() => {
   return [...(currentPerson.value?.migrations || [])].sort((a, b) => (a.move_year || 9999) - (b.move_year || 9999))
+})
+const taskGroupCount = computed(() => {
+  const map = {}
+  relatedTasks.value.forEach(t => {
+    if (!map[t.task_type]) map[t.task_type] = 0
+    map[t.task_type]++
+  })
+  return Object.keys(map).map(type => ({
+    type,
+    count: map[type],
+    tagType: getTaskTypeInfo(type).tagType
+  }))
 })
 
 const getAvatarBg = (p) => {
@@ -460,7 +559,67 @@ const selectPerson = async (p) => {
   }
   loadRelationships()
   loadPersonPhotos()
+  loadRelatedTasks(p.id)
   detailTab.value = 'alias'
+  showTasksPanel.value = false
+}
+
+const loadRelatedTasks = async (personId) => {
+  try {
+    const res = await tasksApi.list({ source_type: 'person', related_person: personId, page_size: 20 })
+    relatedTasks.value = res.results || res || []
+  } catch (e) {
+    relatedTasks.value = mockPersonTasks(personId)
+  }
+}
+
+const openCreateTask = (taskType) => {
+  const typeInfo = getTaskTypeInfo(taskType)
+  taskForm.value = {
+    task_type: taskType,
+    title: `【${typeInfo.label}】${currentPerson.value?.name || '人物'}`,
+    description: `请为该人物补充相关信息。\n姓名：${currentPerson.value?.name || ''}\n出生：${currentPerson.value?.birth_place || ''} ${currentPerson.value?.birth_year || ''}`,
+    assign_type: 'open',
+    assigned_to: '',
+    priority: 'normal'
+  }
+  showTaskDialog.value = true
+}
+
+const submitCreateTask = async () => {
+  if (!taskForm.value.title) { ElMessage.warning('请填写任务标题'); return }
+  try {
+    const data = {
+      ...taskForm.value,
+      source_type: 'person',
+      related_person: currentPerson.value?.id,
+      created_by: CURRENT_USER,
+      status: taskForm.value.assign_type === 'assigned' && taskForm.value.assigned_to ? 'assigned' : 'open'
+    }
+    await tasksApi.create(data)
+    ElMessage.success('采集任务已创建')
+    showTaskDialog.value = false
+    loadRelatedTasks(currentPerson.value?.id)
+  } catch (e) {
+    relatedTasks.value.unshift({
+      id: Date.now(),
+      ...taskForm.value,
+      source_type: 'person',
+      related_person: currentPerson.value?.id,
+      status: taskForm.value.assign_type === 'assigned' && taskForm.value.assigned_to ? 'assigned' : 'open',
+      created_at: new Date().toISOString()
+    })
+    ElMessage.success('采集任务已创建（模拟）')
+    showTaskDialog.value = false
+  }
+}
+
+const goToTasks = () => {
+  router.push({ path: '/tasks', query: { source_type: 'person', related_id: currentPerson.value?.id } })
+}
+
+const goToTaskDetail = () => {
+  router.push('/tasks')
 }
 
 const loadRelationships = async () => {
@@ -652,6 +811,28 @@ function mockPersonPhotos(personId) {
   }
   const ids = photoMap[personId] || []
   return mockPhotoData.filter(p => ids.includes(p.id))
+}
+
+function mockPersonTasks(personId) {
+  const tasks = {
+    1: [
+      { id: 201, task_type: 'old_name_supplement', title: '补注爷爷的别名和旧时称呼', status: 'open', source_type: 'person', created_at: '2024-03-05' },
+      { id: 202, task_type: 'migration_supplement', title: '确认闯关东的具体路线和时间', status: 'in_progress', source_type: 'person', created_at: '2024-03-04' }
+    ],
+    5: [
+      { id: 203, task_type: 'old_name_supplement', title: '补注大姑的乳名', status: 'assigned', source_type: 'person', created_at: '2024-03-10' },
+      { id: 204, task_type: 'relation_verify', title: '核实大姑与张家的姻亲关系', status: 'open', source_type: 'person', created_at: '2024-03-09' }
+    ],
+    7: [
+      { id: 205, task_type: 'relation_verify', title: '校验长孙与祖父母三代以内亲属关系', status: 'submitted', source_type: 'person', created_at: '2024-03-11' },
+      { id: 206, task_type: 'old_name_supplement', title: '补充长孙的昵称和幼时称呼', status: 'completed', source_type: 'person', created_at: '2024-02-28' }
+    ],
+    8: [
+      { id: 207, task_type: 'identity_confirm', title: '确认这位未知老人是否为李大山的弟弟', status: 'conflicted', source_type: 'person', created_at: '2024-03-01' },
+      { id: 208, task_type: 'identity_confirm', title: '征集辨认老人的线索', status: 'open', source_type: 'person', created_at: '2024-03-02' }
+    ]
+  }
+  return tasks[personId] || []
 }
 </script>
 
@@ -940,5 +1121,59 @@ function mockPersonPhotos(personId) {
 
 .empty-photo {
   grid-column: 1 / -1;
+}
+
+.task-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #FFF8F0, #FFF5E6);
+  border: 1px solid #F4A460;
+  border-radius: 12px;
+  margin-bottom: 18px;
+  font-size: 14px;
+  color: #5D4E3A;
+}
+
+.task-tags-inline {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tasks-panel {
+  background: #FFFAF0;
+  border: 1px solid #F5EDE0;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #F0E6D6;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.task-panel-item:hover {
+  background: #FFF5E6;
+  border-color: #D4A574;
+}
+
+.tpi-title {
+  flex: 1;
+  font-size: 14px;
+  color: #5D4E3A;
 }
 </style>

@@ -4,7 +4,9 @@ from .views import (
     PersonViewSet, RelationshipViewSet, AliasViewSet, MigrationInfoViewSet,
     PhotoViewSet, PersonInPhotoViewSet, MemoryFragmentViewSet,
     ConflictVersionViewSet, FamilyConfirmationViewSet, StatsView,
-    CluesView, ClueDetailView, ClaimClueView, ClueStatsView
+    CluesView, ClueDetailView, ClaimClueView, ClueStatsView,
+    CollectionTaskViewSet, TaskSubmissionViewSet, ContributionViewSet,
+    TaskStatsView, GenerateTasksView, ContributionRankingView
 )
 
 router = DefaultRouter()
@@ -17,8 +19,14 @@ router.register(r'person-in-photo', PersonInPhotoViewSet)
 router.register(r'memories', MemoryFragmentViewSet)
 router.register(r'conflicts', ConflictVersionViewSet)
 router.register(r'confirmations', FamilyConfirmationViewSet)
+router.register(r'tasks', CollectionTaskViewSet)
+router.register(r'task-submissions', TaskSubmissionViewSet)
+router.register(r'contributions', ContributionViewSet)
 
 urlpatterns = [
+    path('tasks/stats/', TaskStatsView.as_view(), name='task-stats'),
+    path('tasks/generate/', GenerateTasksView.as_view(), name='generate-tasks'),
+    path('contributions/ranking/', ContributionRankingView.as_view(), name='contribution-ranking'),
     path('', include(router.urls)),
     path('stats/', StatsView.as_view(), name='stats'),
     path('clues/stats/', ClueStatsView.as_view(), name='clue-stats'),

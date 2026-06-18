@@ -27,6 +27,24 @@
         <div class="stat-label">沉淀回忆片段</div>
         <div class="stat-trend">+{{ Math.floor((stats?.total_memories || 0) * 0.15) }} 本月新增</div>
       </div>
+      <div class="stat-card" style="background: linear-gradient(135deg, #7C3AED, #8B5CF6);">
+        <div class="stat-icon">📋</div>
+        <div class="stat-value">{{ taskStats?.pending_total || 0 }}</div>
+        <div class="stat-label">待完成采集任务</div>
+        <div class="stat-trend">{{ taskStats?.open || 0 }}待认领 · {{ taskStats?.in_progress || 0 }}处理中</div>
+      </div>
+      <div class="stat-card" style="background: linear-gradient(135deg, #0D9488, #14B8A6);">
+        <div class="stat-icon">✅</div>
+        <div class="stat-value">{{ taskStats?.completion_rate || 0 }}%</div>
+        <div class="stat-label">任务完成率</div>
+        <div class="stat-trend">共 {{ taskStats?.total || 0 }} 项任务</div>
+      </div>
+      <div class="stat-card" style="background: linear-gradient(135deg, #EA580C, #F97316);">
+        <div class="stat-icon">⚖️</div>
+        <div class="stat-value">{{ taskStats?.conflict_to_confirm_rate || 0 }}%</div>
+        <div class="stat-label">冲突转确认率</div>
+        <div class="stat-trend highlight">{{ taskStats?.conflicted || 0 }}项转 · {{ taskStats?.total || 0 }}总冲突</div>
+      </div>
       <div class="stat-card" style="background: linear-gradient(135deg, #8B0000, #B22222);">
         <div class="stat-icon">⚔️</div>
         <div class="stat-value">{{ stats?.open_conflicts || 0 }}</div>
@@ -38,6 +56,12 @@
         <div class="stat-value">{{ familyMemberCount }}</div>
         <div class="stat-label">参与家属人数</div>
         <div class="stat-trend">共3代共同编撰</div>
+      </div>
+      <div class="stat-card" style="background: linear-gradient(135deg, #475569, #64748B);">
+        <div class="stat-icon">⭐</div>
+        <div class="stat-value">{{ topContributor?.count || 0 }}</div>
+        <div class="stat-label">最高贡献次数</div>
+        <div class="stat-trend highlight">🏆 {{ topContributor?.name || '暂无' }}</div>
       </div>
       <div class="stat-card" style="background: linear-gradient(135deg, #D2691E, #F4A460);">
         <div class="stat-icon">🔍</div>
@@ -139,6 +163,36 @@
         </div>
         <div class="chart-body">
           <div ref="clueChart" class="chart-canvas" style="height: 280px;"></div>
+        </div>
+      </div>
+
+      <div class="chart-card card-warm">
+        <div class="chart-header">
+          <h3><el-icon><Trophy /></el-icon> 家属贡献次数排行</h3>
+          <el-tag size="small" type="warning" effect="light">共 {{ contributionStats?.total || 0 }} 次贡献</el-tag>
+        </div>
+        <div class="chart-body">
+          <div ref="contributorChart" class="chart-canvas" style="height: 340px;"></div>
+        </div>
+      </div>
+
+      <div class="chart-card card-warm">
+        <div class="chart-header">
+          <h3><el-icon><Collection /></el-icon> 采集任务类型分布</h3>
+          <span class="sub-hint">（按任务数量）</span>
+        </div>
+        <div class="chart-body">
+          <div ref="taskTypeChart" class="chart-canvas" style="height: 340px;"></div>
+        </div>
+      </div>
+
+      <div class="chart-card card-warm wide">
+        <div class="chart-header">
+          <h3><el-icon><WarningFilled /></el-icon> 高频待补注人物 TOP 10</h3>
+          <span class="sub-hint">（关联任务数量最多的人物）</span>
+        </div>
+        <div class="chart-body">
+          <div ref="topTaskPersonChart" class="chart-canvas" style="height: 340px;"></div>
         </div>
       </div>
 
@@ -258,22 +312,87 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
-import { stats as statsApi } from '@/api'
+import { stats as statsApi, tasks as tasksApi, contributions as contribApi } from '@/api'
 import {
-  DataAnalysis, Picture, UserFilled, TrendCharts, Connection, Warning, CircleCheckFilled, Search
+  DataAnalysis, Picture, UserFilled, TrendCharts, Connection, Warning, CircleCheckFilled, Search,
+  Trophy, Collection, WarningFilled
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
 const loading = ref(false)
 const stats = ref(null)
+const taskStats = ref(null)
+const contributionStats = ref(null)
 const eraChart = ref(null)
 const topChart = ref(null)
 const clueChart = ref(null)
+const contributorChart = ref(null)
+const taskTypeChart = ref(null)
+const topTaskPersonChart = ref(null)
 let eraChartInstance = null
 let topChartInstance = null
 let clueChartInstance = null
+let contributorChartInstance = null
+let taskTypeChartInstance = null
+let topTaskPersonChartInstance = null
 
 const familyMemberCount = 8
+
+const defaultTaskStats = () => ({
+  total: 48,
+  open: 15,
+  assigned: 8,
+  in_progress: 12,
+  submitted: 6,
+  completed: 28,
+  rejected: 3,
+  conflicted: 5,
+  pending_total: 27,
+  completion_rate: 58,
+  conflict_to_confirm_rate: 67,
+  type_distribution: [
+    { type: 'identity_confirm', count: 14 },
+    { type: 'old_name_supplement', count: 9 },
+    { type: 'migration_supplement', count: 7 },
+    { type: 'event_narration', count: 11 },
+    { type: 'relation_verify', count: 7 }
+  ],
+  top_persons: [
+    { id: 8, name: '未知老人', count: 6 },
+    { id: 5, name: '李建梅', count: 5 },
+    { id: 1, name: '李大山', count: 4 },
+    { id: 7, name: '李明', count: 4 },
+    { id: 3, name: '李建国', count: 3 },
+    { id: 4, name: '李建华', count: 3 },
+    { id: 2, name: '王秀兰', count: 2 },
+    { id: 6, name: '张桂芬', count: 2 },
+    { id: 11, name: '李成', count: 1 },
+    { id: 12, name: '李娜', count: 1 }
+  ]
+})
+
+const defaultContributionStats = () => ({
+  total: 156,
+  leaderboard: [
+    { contributor: '长孙·李明', count: 42, points: 1280 },
+    { contributor: '大姑·李建梅', count: 32, points: 980 },
+    { contributor: '二叔·李建华', count: 28, points: 860 },
+    { contributor: '三妹·李娜', count: 22, points: 680 },
+    { contributor: '长孙媳·王芳', count: 16, points: 520 },
+    { contributor: '二舅·张建国', count: 10, points: 340 },
+    { contributor: '堂弟·李强', count: 6, points: 180 }
+  ],
+  my_contributions: {
+    total: 42,
+    by_type: {
+      task_submit: 18,
+      task_claim: 12,
+      review_pass: 5,
+      person_add: 4,
+      memory_add: 3
+    }
+  }
+})
 
 const defaultStats = () => ({
   total_photos: 248,
@@ -395,23 +514,41 @@ const memoryPct = computed(() => {
 const totalConfirmations = computed(() => 18)
 const familyConsensusPct = computed(() => 78)
 
+const topContributor = computed(() => {
+  const lb = contributionStats.value?.leaderboard || []
+  return lb[0] || { name: '暂无', count: 0 }
+})
+
 const overallProgress = computed(() => {
-  return Math.round((photoPct.value + personPct.value + memoryPct.value + familyConsensusPct.value) / 4)
+  return Math.round((photoPct.value + personPct.value + memoryPct.value + familyConsensusPct.value + (taskStats.value?.completion_rate || 0)) / 5)
 })
 
 const loadData = async () => {
   loading.value = true
   try {
-    const res = await statsApi.get()
-    stats.value = res
+    const [sRes, tRes, cRes] = await Promise.all([
+      statsApi.get().catch(() => defaultStats()),
+      tasksApi.stats().catch(() => defaultTaskStats()),
+      contribApi.ranking().catch(() => defaultContributionStats())
+    ])
+    stats.value = sRes?.task_stats ? sRes : defaultStats()
+    taskStats.value = tRes || sRes?.task_stats || defaultTaskStats()
+    contributionStats.value = cRes || sRes?.contribution_stats || defaultContributionStats()
+    if (sRes?.task_stats && !taskStats.value?.total) taskStats.value = { ...defaultTaskStats(), ...sRes.task_stats }
+    if (sRes?.contribution_stats && !contributionStats.value?.total) contributionStats.value = { ...defaultContributionStats(), ...sRes.contribution_stats }
   } catch (e) {
     stats.value = defaultStats()
+    taskStats.value = defaultTaskStats()
+    contributionStats.value = defaultContributionStats()
   } finally {
     loading.value = false
     await nextTick()
     renderEraChart()
     renderTopChart()
     renderClueChart()
+    renderContributorChart()
+    renderTaskTypeChart()
+    renderTopTaskPersonChart()
   }
 }
 
@@ -563,17 +700,193 @@ const renderClueChart = () => {
   clueChartInstance.setOption(option)
 }
 
+const renderContributorChart = () => {
+  if (!contributorChart.value) return
+  if (contributorChartInstance) contributorChartInstance.dispose()
+  contributorChartInstance = echarts.init(contributorChart.value)
+  const data = [...(contributionStats.value?.leaderboard || [])].reverse()
+  const medals = ['🥇', '🥈', '🥉']
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params) => {
+        const d = params[0]
+        return `${d.name}<br/>贡献次数：${d.value} 次<br/>贡献积分：${data[d.dataIndex]?.points || 0} 分`
+      }
+    },
+    grid: { left: 110, right: 50, top: 20, bottom: 30 },
+    xAxis: { type: 'value', axisLabel: { color: '#8B7355' }, splitLine: { lineStyle: { color: '#F5EDE0' } } },
+    yAxis: {
+      type: 'category',
+      data: data.map((d, i) => {
+        const idx = data.length - 1 - i
+        const medal = idx < 3 ? medals[idx] + ' ' : ''
+        return medal + d.contributor
+      }),
+      axisLabel: { color: '#5D4E3A', fontWeight: 500 }
+    },
+    series: [{
+      type: 'bar',
+      data: data.map((d, i) => ({
+        value: d.count,
+        itemStyle: {
+          borderRadius: [0, 8, 8, 0],
+          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+            { offset: 0, color: ['#FBBF24', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#F97316'][i] || '#D2691E' },
+            { offset: 1, color: ['#FDE68A', '#FDBA74', '#6EE7B7', '#93C5FD', '#C4B5FD', '#F9A8D4', '#FDBA74'][i] || '#F4A460' }
+          ])
+        }
+      })),
+      label: {
+        show: true,
+        position: 'right',
+        color: '#8B4513',
+        fontWeight: 600,
+        formatter: '{c} 次'
+      },
+      barWidth: '55%'
+    }]
+  }
+  contributorChartInstance.setOption(option)
+}
+
+const renderTaskTypeChart = () => {
+  if (!taskTypeChart.value) return
+  if (taskTypeChartInstance) taskTypeChartInstance.dispose()
+  taskTypeChartInstance = echarts.init(taskTypeChart.value)
+  const typeMap = {
+    identity_confirm: { label: '人物身份确认', color: '#3B82F6' },
+    old_name_supplement: { label: '旧称/别名补充', color: '#F59E0B' },
+    migration_supplement: { label: '迁居信息补充', color: '#10B981' },
+    event_narration: { label: '事件背景口述', color: '#8B5CF6' },
+    relation_verify: { label: '亲属关系校验', color: '#EC4899' }
+  }
+  const raw = taskStats.value?.type_distribution || []
+  const total = raw.reduce((s, x) => s + (x.count || 0), 0) || 1
+  const data = raw.map(item => ({
+    value: item.count,
+    name: typeMap[item.type]?.label || item.type,
+    itemStyle: { color: typeMap[item.type]?.color || '#D2691E' }
+  }))
+  const option = {
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c} 项 ({d}%)'
+    },
+    legend: {
+      orient: 'vertical',
+      right: '3%',
+      top: 'center',
+      textStyle: { color: '#5D4E3A', fontSize: 12 }
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['40%', '72%'],
+        center: ['32%', '50%'],
+        avoidLabelOverlap: true,
+        itemStyle: {
+          borderRadius: 8,
+          borderColor: '#fff',
+          borderWidth: 3
+        },
+        label: {
+          show: true,
+          position: 'center',
+          formatter: [
+            '{total|' + total + '}',
+            '{sub|项采集任务}'
+          ].join('\n'),
+          rich: {
+            total: { fontSize: 32, fontWeight: 'bold', color: '#8B4513', lineHeight: 40 },
+            sub: { fontSize: 13, color: '#8B7355' }
+          }
+        },
+        emphasis: {
+          label: { show: true, fontSize: 16, fontWeight: 'bold' }
+        },
+        labelLine: { show: false },
+        data: data
+      }
+    ]
+  }
+  taskTypeChartInstance.setOption(option)
+}
+
+const renderTopTaskPersonChart = () => {
+  if (!topTaskPersonChart.value) return
+  if (topTaskPersonChartInstance) topTaskPersonChartInstance.dispose()
+  topTaskPersonChartInstance = echarts.init(topTaskPersonChart.value)
+  const data = [...(taskStats.value?.top_persons || [])].reverse()
+  const option = {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: '{b}: {c} 项待补注任务' },
+    grid: { left: 100, right: 40, top: 20, bottom: 30 },
+    xAxis: { type: 'value', axisLabel: { color: '#8B7355' }, splitLine: { lineStyle: { color: '#F5EDE0' } } },
+    yAxis: {
+      type: 'category',
+      data: data.map(d => d.name),
+      axisLabel: { color: '#5D4E3A', fontWeight: 500 }
+    },
+    series: [{
+      type: 'bar',
+      data: data.map((d, i) => ({
+        value: d.count,
+        itemStyle: {
+          borderRadius: [0, 10, 10, 0],
+          color: d.count >= 4
+            ? new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                { offset: 0, color: '#F87171' },
+                { offset: 1, color: '#DC2626' }
+              ])
+            : d.count >= 2
+            ? new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                { offset: 0, color: '#FBBF24' },
+                { offset: 1, color: '#D97706' }
+              ])
+            : new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                { offset: 0, color: '#60A5FA' },
+                { offset: 1, color: '#2563EB' }
+              ])
+        }
+      })),
+      label: {
+        show: true,
+        position: 'right',
+        color: '#8B4513',
+        fontWeight: 600,
+        formatter: '{c} 项'
+      },
+      markLine: {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { color: '#DC2626', type: 'dashed' },
+        label: { formatter: '高危线 ≥4', color: '#DC2626', position: 'insideEndTop' },
+        data: [{ xAxis: 4 }]
+      },
+      barWidth: '60%'
+    }]
+  }
+  topTaskPersonChartInstance.setOption(option)
+}
+
 const handleResize = () => {
   eraChartInstance?.resize()
   topChartInstance?.resize()
   clueChartInstance?.resize()
+  contributorChartInstance?.resize()
+  taskTypeChartInstance?.resize()
+  topTaskPersonChartInstance?.resize()
 }
 
-watch(() => stats.value, () => {
+watch([() => stats.value, () => taskStats.value, () => contributionStats.value], () => {
   nextTick(() => {
     renderEraChart()
     renderTopChart()
     renderClueChart()
+    renderContributorChart()
+    renderTaskTypeChart()
+    renderTopTaskPersonChart()
   })
 })
 

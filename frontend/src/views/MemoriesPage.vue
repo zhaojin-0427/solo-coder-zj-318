@@ -88,6 +88,14 @@
                 </span>
               </div>
             </div>
+            <div class="linked-item" :style="{ cursor: 'pointer' }" @click.stop="viewMemoryTasks(m)">
+              <el-icon color="#D2691E"><List /></el-icon>
+              <span style="color:#8B4513;font-weight:500;">采集任务</span>
+              <el-tag v-if="getMemoryTaskCount(m.id)" size="small" type="warning" effect="light">
+                {{ getMemoryTaskCount(m.id) }} 项
+              </el-tag>
+              <el-tag v-else size="small" effect="plain">发起</el-tag>
+            </div>
           </div>
           <div class="memory-actions" @click.stop>
             <el-button size="small" plain @click="openDetail(m)">
@@ -95,6 +103,9 @@
             </el-button>
             <el-button size="small" type="primary" plain @click="editMemory(m)">
               <el-icon><Edit /></el-icon>编辑
+            </el-button>
+            <el-button size="small" type="warning" plain @click="openCreateTaskFromCard(m)">
+              <el-icon><EditPen /></el-icon>发起补注
             </el-button>
             <el-button size="small" @click="publishMemory(m)" v-if="m.status !== 'published'">
               <el-icon><CircleCheck /></el-icon>沉淀
@@ -174,6 +185,29 @@
             </el-tag>
           </div>
         </div>
+        <div class="detail-link-section task-detail-section">
+          <div class="section-header-row">
+            <h4><el-icon color="#D2691E"><List /></el-icon> 关联采集任务</h4>
+            <div class="section-actions">
+              <el-button size="small" type="warning" plain @click="openCreateTaskFromDetail">
+                <el-icon><EditPen /></el-icon>发起事件口述
+              </el-button>
+              <el-button size="small" @click="viewMemoryTasks(detail)">
+                <el-icon><ArrowRight /></el-icon>查看全部
+              </el-button>
+            </div>
+          </div>
+          <div v-if="currentDetailTasks.length" class="detail-task-list">
+            <div v-for="t in currentDetailTasks" :key="t.id" class="detail-task-item" @click="goToTaskDetail(t)">
+              <el-tag :type="getTaskTypeInfo(t.task_type).tagType" size="small" effect="light">
+                {{ getTaskTypeInfo(t.task_type).icon }} {{ getTaskTypeInfo(t.task_type).label }}
+              </el-tag>
+              <span class="dti-title">{{ t.title }}</span>
+              <el-tag :type="getTaskStatusInfo(t.status).type" size="small">{{ getTaskStatusInfo(t.status).label }}</el-tag>
+            </div>
+          </div>
+          <el-empty v-else description="暂无采集任务，可发起事件口述补注" :image-size="60" />
+        </div>
         <div class="detail-time">
           记录时间：{{ formatDate(detail.created_at) }} · 最后更新：{{ formatDate(detail.updated_at) }}
         </div>
@@ -186,18 +220,62 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showTaskDialog" title="发起采集任务" width="560px" destroy-on-close>
+      <el-form :model="taskForm" label-width="100px">
+        <el-form-item label="任务类型" required>
+          <el-select v-model="taskForm.task_type" style="width: 100%">
+            <el-option
+              v-for="opt in TASK_TYPE_OPTIONS.filter(t => ['event_narration', 'relation_verify', 'identity_confirm'].includes(t.value))"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="任务标题" required>
+          <el-input v-model="taskForm.title" />
+        </el-form-item>
+        <el-form-item label="任务描述">
+          <el-input v-model="taskForm.description" type="textarea" :rows="4" />
+        </el-form-item>
+        <el-form-item label="分派方式">
+          <el-radio-group v-model="taskForm.assign_type">
+            <el-radio value="open">全家认领</el-radio>
+            <el-radio value="assigned">指定家属</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="指定家属" v-if="taskForm.assign_type === 'assigned'">
+          <el-select v-model="taskForm.assigned_to" filterable placeholder="选择一位家属" style="width: 100%">
+            <el-option v-for="p in allPersons" :key="p.id" :label="p.name" :value="p.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-select v-model="taskForm.priority" style="width: 100%">
+            <el-option label="普通" value="normal" />
+            <el-option label="较高" value="high" />
+            <el-option label="紧急" value="urgent" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showTaskDialog = false">取消</el-button>
+        <el-button type="primary" class="btn-primary-warm" @click="submitCreateTask">创建任务</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Document, Search, EditPen, Calendar, Location, User, Clock,
-  Picture, UserFilled, View, Edit, CircleCheck
+  Picture, UserFilled, View, Edit, CircleCheck, List, ArrowRight
 } from '@element-plus/icons-vue'
-import { memories as memApi, photos as photoApi, persons as personApi } from '@/api'
-import { MEMORY_STATUS_OPTIONS, getOptionLabel } from '@/store'
+import { memories as memApi, photos as photoApi, persons as personApi, tasks as tasksApi } from '@/api'
+import { MEMORY_STATUS_OPTIONS, getOptionLabel, TASK_TYPE_OPTIONS, TASK_STATUS_OPTIONS, getTaskTypeInfo, getTaskStatusInfo, CURRENT_USER } from '@/store'
 
 const loading = ref(false)
 const memories = ref([])
@@ -217,6 +295,12 @@ const memoryForm = ref({
   title: '', occur_year: null, occur_place: '', content: '',
   author: '', status: 'draft'
 })
+const showTaskDialog = ref(false)
+const taskForm = ref({ task_type: '', title: '', description: '', assign_type: 'open', assigned_to: '', priority: 'normal' })
+const allTasks = ref([])
+const currentDetailTasks = ref([])
+const taskTargetMemory = ref(null)
+const router = useRouter()
 
 const authors = computed(() => [...new Set(memories.value.map(m => m.author).filter(Boolean))])
 
@@ -258,16 +342,19 @@ const setFilter = (s) => { statusFilter.value = statusFilter.value === s ? '' : 
 const loadData = async () => {
   loading.value = true
   try {
-    const [mRes, pRes, perRes] = await Promise.all([
+    const [mRes, pRes, perRes, tRes] = await Promise.all([
       memApi.list({ page_size: 200 }).catch(() => ({ results: mockMemories() })),
       photoApi.simple().catch(() => []),
-      personApi.simple().catch(() => [])
+      personApi.simple().catch(() => []),
+      tasksApi.list({ source_type: 'memory', page_size: 200 }).catch(() => ({ results: mockAllMemoryTasks() }))
     ])
     memories.value = mRes.results || mRes || mockMemories()
     allPhotos.value = pRes.results || pRes || []
     allPersons.value = perRes.results || perRes || []
+    allTasks.value = tRes.results || tRes || mockAllMemoryTasks()
   } catch (e) {
     memories.value = mockMemories()
+    allTasks.value = mockAllMemoryTasks()
   } finally {
     loading.value = false
   }
@@ -279,7 +366,90 @@ const openDetail = async (m) => {
   } catch (e) {
     detail.value = enrichMemory(m)
   }
+  taskTargetMemory.value = detail.value
+  loadDetailTasks(m.id)
   showDetail.value = true
+}
+
+const loadDetailTasks = async (memoryId) => {
+  try {
+    const res = await tasksApi.list({ source_type: 'memory', related_memory: memoryId, page_size: 20 })
+    currentDetailTasks.value = res.results || res || []
+  } catch (e) {
+    currentDetailTasks.value = allTasks.value.filter(t => t.related_memory === memoryId)
+  }
+}
+
+const loadAllTasks = async () => {
+  try {
+    const res = await tasksApi.list({ source_type: 'memory', page_size: 200 })
+    allTasks.value = res.results || res || []
+  } catch (e) {
+    allTasks.value = mockAllMemoryTasks()
+  }
+}
+
+const getMemoryTaskCount = (memoryId) => {
+  return allTasks.value.filter(t => t.related_memory === memoryId).length
+}
+
+const viewMemoryTasks = (m) => {
+  router.push({ path: '/tasks', query: { source_type: 'memory', related_id: m.id } })
+}
+
+const goToTaskDetail = () => {
+  router.push('/tasks')
+}
+
+const openCreateTaskFromCard = (m) => {
+  taskTargetMemory.value = m
+  const typeInfo = getTaskTypeInfo('event_narration')
+  taskForm.value = {
+    task_type: 'event_narration',
+    title: `【${typeInfo.label}】${m.title}`,
+    description: `请为这段回忆补充更多口述细节或不同版本的叙述。\n回忆标题：${m.title}\n当前内容摘要：${(m.content || '').substring(0, 100)}...`,
+    assign_type: 'open',
+    assigned_to: '',
+    priority: 'normal'
+  }
+  showTaskDialog.value = true
+}
+
+const openCreateTaskFromDetail = () => {
+  if (!detail.value) return
+  openCreateTaskFromCard(detail.value)
+  showDetail.value = false
+}
+
+const submitCreateTask = async () => {
+  if (!taskForm.value.title) { ElMessage.warning('请填写任务标题'); return }
+  const mem = taskTargetMemory.value || detail.value
+  try {
+    const data = {
+      ...taskForm.value,
+      source_type: 'memory',
+      related_memory: mem?.id,
+      created_by: CURRENT_USER,
+      status: taskForm.value.assign_type === 'assigned' && taskForm.value.assigned_to ? 'assigned' : 'open'
+    }
+    await tasksApi.create(data)
+    ElMessage.success('采集任务已创建')
+    showTaskDialog.value = false
+    loadAllTasks()
+    if (detail.value && mem?.id === detail.value.id) loadDetailTasks(mem.id)
+  } catch (e) {
+    allTasks.value.unshift({
+      id: Date.now(),
+      ...taskForm.value,
+      source_type: 'memory',
+      related_memory: mem?.id,
+      status: taskForm.value.assign_type === 'assigned' && taskForm.value.assigned_to ? 'assigned' : 'open',
+      created_at: new Date().toISOString()
+    })
+    ElMessage.success('采集任务已创建（模拟）')
+    showTaskDialog.value = false
+    if (detail.value && mem?.id === detail.value.id) loadDetailTasks(mem.id)
+  }
 }
 
 const editMemory = (m) => {
@@ -452,6 +622,16 @@ function mockMemories() {
 function enrichMemory(m) {
   const full = mockMemories().find(x => x.id === m.id)
   return full || { ...m, related_photos_detail: [], related_people_detail: [] }
+}
+
+function mockAllMemoryTasks() {
+  return [
+    { id: 301, task_type: 'event_narration', title: '补充闯关东路上的更多细节', status: 'in_progress', source_type: 'memory', related_memory: 1, created_at: '2024-03-10' },
+    { id: 302, task_type: 'relation_verify', title: '核实同行的同乡人物关系', status: 'open', source_type: 'memory', related_memory: 1, created_at: '2024-03-09' },
+    { id: 303, task_type: 'event_narration', title: '补充北大荒冬天抢收粮食的故事', status: 'submitted', source_type: 'memory', related_memory: 2, created_at: '2024-03-08' },
+    { id: 304, task_type: 'identity_confirm', title: '确认冲突版本中的拍照地点', status: 'conflicted', source_type: 'memory', related_memory: 4, created_at: '2024-03-07' },
+    { id: 305, task_type: 'event_narration', title: '核对1968年全家福的人物身份', status: 'completed', source_type: 'memory', related_memory: 3, created_at: '2024-03-01' }
+  ]
 }
 </script>
 
@@ -726,5 +906,52 @@ function enrichMemory(m) {
   font-size: 12px;
   color: #B5A48C;
   text-align: right;
+}
+
+.section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.section-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.detail-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.detail-task-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #F0E6D6;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.detail-task-item:hover {
+  background: #FFF5E6;
+  border-color: #D4A574;
+}
+
+.dti-title {
+  flex: 1;
+  font-size: 14px;
+  color: #5D4E3A;
+}
+
+.task-detail-section {
+  background: linear-gradient(135deg, #FFF8F0, #FFFAF0);
+  border: 1px solid #F4A460;
+  border-radius: 12px;
 }
 </style>

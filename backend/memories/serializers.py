@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import (
     Person, Alias, MigrationInfo, Relationship, Photo,
-    PersonInPhoto, MemoryFragment, ConflictVersion, FamilyConfirmation
+    PersonInPhoto, MemoryFragment, ConflictVersion, FamilyConfirmation,
+    CollectionTask, TaskSubmission, Contribution
 )
 
 
@@ -233,3 +234,113 @@ class ClaimResultSerializer(serializers.Serializer):
     claimed_count = serializers.IntegerField()
     updated_photos = serializers.ListField()
     message = serializers.CharField()
+
+
+class CollectionTaskSerializer(serializers.ModelSerializer):
+    task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
+    source_type_display = serializers.CharField(source='get_source_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    assign_type_display = serializers.CharField(source='get_assign_type_display', read_only=True)
+    related_photo_detail = PhotoSimpleSerializer(source='related_photo', read_only=True, allow_null=True)
+    related_person_detail = PersonSimpleSerializer(source='related_person', read_only=True, allow_null=True)
+    related_memory_title = serializers.CharField(source='related_memory.title', read_only=True, allow_null=True)
+    submission_count = serializers.IntegerField(read_only=True, default=0)
+    has_submission = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CollectionTask
+        fields = '__all__'
+
+    def get_has_submission(self, obj):
+        return obj.submissions.exists()
+
+
+class TaskSubmissionSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    task_title = serializers.CharField(source='task.title', read_only=True)
+    task_type = serializers.CharField(source='task.task_type', read_only=True)
+    task_type_display = serializers.CharField(source='task.get_task_type_display', read_only=True)
+
+    class Meta:
+        model = TaskSubmission
+        fields = '__all__'
+
+
+class ContributionSerializer(serializers.ModelSerializer):
+    contribution_type_display = serializers.CharField(source='get_contribution_type_display', read_only=True)
+
+    class Meta:
+        model = Contribution
+        fields = '__all__'
+
+
+class TaskStatsSerializer(serializers.Serializer):
+    total_tasks = serializers.IntegerField()
+    open_tasks = serializers.IntegerField()
+    in_progress_tasks = serializers.IntegerField()
+    submitted_tasks = serializers.IntegerField()
+    completed_tasks = serializers.IntegerField()
+    rejected_tasks = serializers.IntegerField()
+    conflicted_tasks = serializers.IntegerField()
+    completion_rate = serializers.FloatField()
+    conflict_rate = serializers.FloatField()
+    total_submissions = serializers.IntegerField()
+    approved_submissions = serializers.IntegerField()
+    contribution_leaderboard = serializers.ListField()
+    top_task_persons = serializers.ListField()
+    task_type_distribution = serializers.ListField()
+
+
+class TaskClaimSerializer(serializers.Serializer):
+    claimed_by = serializers.CharField(required=True, max_length=100)
+
+
+class TaskSubmitSerializer(serializers.Serializer):
+    submitter = serializers.CharField(required=True, max_length=100)
+    submission_data = serializers.DictField(required=False, default=dict)
+    submission_text = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class TaskReviewSerializer(serializers.Serializer):
+    reviewer = serializers.CharField(required=True, max_length=100)
+    action = serializers.ChoiceField(choices=['approve', 'reject', 'to_conflict'])
+    comment = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class GenerateTasksSerializer(serializers.Serializer):
+    source_type = serializers.ChoiceField(choices=['photo', 'person', 'memory', 'all'])
+    source_id = serializers.IntegerField(required=False, allow_null=True)
+    task_types = serializers.ListField(
+        required=False,
+        child=serializers.ChoiceField(choices=[
+            'identity_confirm', 'old_name_supplement',
+            'migration_supplement', 'event_narration', 'relation_verify'
+        ]),
+        default=[]
+    )
+    assign_type = serializers.ChoiceField(choices=['family', 'specific'], default='family')
+    assigned_to = serializers.CharField(required=False, allow_blank=True, default='')
+    created_by = serializers.CharField(required=False, default='系统')
+
+
+class ContributionRankingSerializer(serializers.Serializer):
+    contributor = serializers.CharField()
+    total_points = serializers.IntegerField()
+    task_count = serializers.IntegerField()
+    task_approved_count = serializers.IntegerField()
+    contribution_detail = serializers.ListField()
+
+
+class StatsSerializer(serializers.Serializer):
+    total_photos = serializers.IntegerField()
+    total_persons = serializers.IntegerField()
+    pending_persons = serializers.IntegerField()
+    total_memories = serializers.IntegerField()
+    open_conflicts = serializers.IntegerField()
+    pending_confirmations = serializers.IntegerField()
+    era_coverage = serializers.ListField()
+    top_persons = serializers.ListField()
+    annotation_completion = serializers.DictField()
+    clue_stats = serializers.DictField()
+    task_stats = serializers.DictField(required=False)
+    contribution_stats = serializers.DictField(required=False)

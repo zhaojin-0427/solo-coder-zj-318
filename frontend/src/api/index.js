@@ -110,4 +110,36 @@ export const clues = {
   stats: () => api.get('/clues/stats/')
 }
 
+export const tasks = {
+  list: (params = {}) => api.get('/tasks/', { params }),
+  get: (id) => api.get(`/tasks/${id}/`),
+  create: (data) => api.post('/tasks/', data),
+  update: (id, data) => api.put(`/tasks/${id}/`, data),
+  patch: (id, data) => api.patch(`/tasks/${id}/`, data),
+  delete: (id) => api.delete(`/tasks/${id}/`),
+  myTasks: (params = {}) => api.get('/tasks/my_tasks/', { params }),
+  claim: (id, data) => api.post(`/tasks/${id}/claim/`, data),
+  unclaim: (id) => api.post(`/tasks/${id}/unclaim/`),
+  submit: (id, data) => api.post(`/tasks/${id}/submit/`, data),
+  review: (id, data) => api.post(`/tasks/${id}/review/`, data),
+  submissions: (id) => api.get(`/tasks/${id}/submissions/`),
+  stats: (params = {}) => api.get('/tasks/stats/', { params }),
+  generate: (data) => api.post('/tasks/generate/', data)
+}
+
+export const taskSubmissions = {
+  list: (params = {}) => api.get('/task-submissions/', { params }),
+  get: (id) => api.get(`/task-submissions/${id}/`),
+  create: (data) => api.post('/task-submissions/', data),
+  update: (id, data) => api.put(`/task-submissions/${id}/`, data),
+  patch: (id, data) => api.patch(`/task-submissions/${id}/`, data),
+  delete: (id) => api.delete(`/task-submissions/${id}/`)
+}
+
+export const contributions = {
+  list: (params = {}) => api.get('/contributions/', { params }),
+  get: (id) => api.get(`/contributions/${id}/`),
+  ranking: (params = {}) => api.get('/contributions/ranking/', { params })
+}
+
 export default api

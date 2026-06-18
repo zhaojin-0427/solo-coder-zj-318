@@ -160,6 +160,36 @@
               <el-tag v-if="currentPhoto.taken_year" type="info" size="large">{{ currentPhoto.taken_year }}年</el-tag>
               <el-tag v-if="currentPhoto.location" type="info" size="large"><el-icon><LocationFilled /></el-icon> {{ currentPhoto.location }}</el-tag>
             </div>
+            <div class="task-entry-bar">
+              <div class="task-entry-left">
+                <el-icon color="#D2691E"><List /></el-icon>
+                <span>关联采集任务</span>
+                <el-tag size="small" type="warning" effect="light" v-if="relatedTasks.length">{{ relatedTasks.length }} 项待补注</el-tag>
+                <el-tag size="small" effect="plain" v-else>暂无任务</el-tag>
+              </div>
+              <div class="task-entry-right">
+                <el-button size="small" type="primary" plain @click.stop="openCreateTask('identity_confirm')">
+                  <el-icon><Plus /></el-icon>发起身份确认
+                </el-button>
+                <el-button size="small" type="warning" plain @click.stop="openCreateTask('event_narration')">
+                  <el-icon><EditPen /></el-icon>发起事件口述
+                </el-button>
+                <el-button size="small" @click.stop="goToTasks">
+                  <el-icon><ArrowRight /></el-icon>查看全部
+                </el-button>
+              </div>
+            </div>
+            <div class="related-task-list" v-if="relatedTasks.length">
+              <div v-for="t in relatedTasks.slice(0, 3)" :key="t.id" class="related-task-item" @click.stop="goToTaskDetail(t)">
+                <el-tag :type="getTaskTypeInfo(t.task_type).tagType" size="small" effect="light">
+                  {{ getTaskTypeInfo(t.task_type).icon }} {{ getTaskTypeInfo(t.task_type).label }}
+                </el-tag>
+                <span class="rt-title">{{ t.title }}</span>
+                <el-tag :type="getTaskStatusInfo(t.status).type" size="small" effect="plain">
+                  {{ getTaskStatusInfo(t.status).label }}
+                </el-tag>
+              </div>
+            </div>
           </div>
           <div class="detail-info-section">
             <div class="section-block">
@@ -282,20 +312,65 @@
         <el-button type="primary" class="btn-primary-warm" @click="submitEditPhoto">保存修改</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showTaskDialog" title="发起采集任务" width="560px" destroy-on-close>
+      <el-form :model="taskForm" label-width="100px">
+        <el-form-item label="任务类型" required>
+          <el-select v-model="taskForm.task_type" style="width: 100%">
+            <el-option
+              v-for="opt in TASK_TYPE_OPTIONS.filter(t => ['identity_confirm', 'event_narration'].includes(t.value))"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="任务标题" required>
+          <el-input v-model="taskForm.title" />
+        </el-form-item>
+        <el-form-item label="任务描述">
+          <el-input v-model="taskForm.description" type="textarea" :rows="4" />
+        </el-form-item>
+        <el-form-item label="分派方式">
+          <el-radio-group v-model="taskForm.assign_type">
+            <el-radio value="open">全家认领</el-radio>
+            <el-radio value="assigned">指定家属</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="指定家属" v-if="taskForm.assign_type === 'assigned'">
+          <el-select v-model="taskForm.assigned_to" filterable placeholder="选择一位家属" style="width: 100%">
+            <el-option v-for="p in allPersons" :key="p.id" :label="p.name" :value="p.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-select v-model="taskForm.priority" style="width: 100%">
+            <el-option label="普通" value="normal" />
+            <el-option label="较高" value="high" />
+            <el-option label="紧急" value="urgent" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showTaskDialog = false">取消</el-button>
+        <el-button type="primary" class="btn-primary-warm" @click="submitCreateTask">创建任务</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Picture, Search, Upload, Loading, PictureFilled, Clock, Folder,
-  Location, LocationFilled, Plus, User, UploadFilled
+  Location, LocationFilled, Plus, User, UploadFilled, List, EditPen, ArrowRight
 } from '@element-plus/icons-vue'
-import { photos as photosApi, persons as personsApi } from '@/api'
+import { photos as photosApi, persons as personsApi, tasks as tasksApi } from '@/api'
 import {
   ERA_OPTIONS, SCENE_OPTIONS, SOURCE_OPTIONS, PHOTO_STATUS_OPTIONS,
-  getOptionLabel, photoPlaceholder
+  getOptionLabel, photoPlaceholder, TASK_TYPE_OPTIONS, TASK_STATUS_OPTIONS,
+  getTaskTypeInfo, getTaskStatusInfo, CURRENT_USER
 } from '@/store'
 
 const loading = ref(false)
@@ -311,6 +386,10 @@ const showDetail = ref(false)
 const showAddPerson = ref(false)
 const showEditPhoto = ref(false)
 const currentPhoto = ref(null)
+const relatedTasks = ref([])
+const showTaskDialog = ref(false)
+const taskForm = ref({ task_type: '', title: '', description: '', assign_type: 'open', assigned_to: '', priority: 'normal' })
+const router = useRouter()
 
 const uploadForm = ref({
   title: '', era: 'unknown', scene: 'other', source: 'old_album',
@@ -446,7 +525,66 @@ const openDetail = async (photo) => {
   } catch (e) {
     currentPhoto.value = { ...photo, people_in_photo: mockPeopleInPhoto(photo.id) }
   }
+  loadRelatedTasks(photo.id)
   showDetail.value = true
+}
+
+const loadRelatedTasks = async (photoId) => {
+  try {
+    const res = await tasksApi.list({ source_type: 'photo', related_photo: photoId, page_size: 20 })
+    relatedTasks.value = res.results || res || []
+  } catch (e) {
+    relatedTasks.value = mockPhotoTasks(photoId)
+  }
+}
+
+const openCreateTask = (taskType) => {
+  const typeInfo = getTaskTypeInfo(taskType)
+  taskForm.value = {
+    task_type: taskType,
+    title: `【${typeInfo.label}】${currentPhoto.value?.title || '照片'}`,
+    description: `请为这张照片补充相关信息。\n照片：${currentPhoto.value?.title || ''}\n年代：${getOptionLabel(ERA_OPTIONS, currentPhoto.value?.era) || ''}`,
+    assign_type: 'open',
+    assigned_to: '',
+    priority: 'normal'
+  }
+  showTaskDialog.value = true
+}
+
+const submitCreateTask = async () => {
+  if (!taskForm.value.title) { ElMessage.warning('请填写任务标题'); return }
+  try {
+    const data = {
+      ...taskForm.value,
+      source_type: 'photo',
+      related_photo: currentPhoto.value?.id,
+      created_by: CURRENT_USER,
+      status: taskForm.value.assign_type === 'assigned' && taskForm.value.assigned_to ? 'assigned' : 'open'
+    }
+    await tasksApi.create(data)
+    ElMessage.success('采集任务已创建')
+    showTaskDialog.value = false
+    loadRelatedTasks(currentPhoto.value?.id)
+  } catch (e) {
+    relatedTasks.value.unshift({
+      id: Date.now(),
+      ...taskForm.value,
+      source_type: 'photo',
+      related_photo: currentPhoto.value?.id,
+      status: taskForm.value.assign_type === 'assigned' && taskForm.value.assigned_to ? 'assigned' : 'open',
+      created_at: new Date().toISOString()
+    })
+    ElMessage.success('采集任务已创建（模拟）')
+    showTaskDialog.value = false
+  }
+}
+
+const goToTasks = () => {
+  router.push({ path: '/tasks', query: { source_type: 'photo', related_id: currentPhoto.value?.id } })
+}
+
+const goToTaskDetail = () => {
+  router.push('/tasks')
 }
 
 const submitAddPerson = async () => {
@@ -554,6 +692,21 @@ function mockPeopleInPhoto(photoId) {
     ]
   }
   return []
+}
+
+function mockPhotoTasks(photoId) {
+  const tasks = {
+    2: [
+      { id: 101, task_type: 'identity_confirm', title: '确认二姑身份并关联档案', status: 'open', source_type: 'photo', created_at: '2024-03-10' },
+      { id: 102, task_type: 'event_narration', title: '补充1968年春节拍照时的背景故事', status: 'in_progress', source_type: 'photo', created_at: '2024-03-08' }
+    ],
+    4: [
+      { id: 103, task_type: 'old_name_supplement', title: '补充新娘当时的称呼和乳名', status: 'assigned', source_type: 'photo', created_at: '2024-03-12' },
+      { id: 104, task_type: 'identity_confirm', title: '确认后排亲戚的身份', status: 'open', source_type: 'photo', created_at: '2024-03-11' },
+      { id: 105, task_type: 'event_narration', title: '口述1985年婚礼当天的细节', status: 'completed', source_type: 'photo', created_at: '2024-03-01' }
+    ]
+  }
+  return tasks[photoId] || []
 }
 </script>
 
@@ -729,5 +882,60 @@ function mockPeopleInPhoto(photoId) {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.task-entry-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #FFF8F0, #FFFAF0);
+  border: 1px dashed #D4A574;
+  border-radius: 10px;
+  margin-top: 8px;
+}
+
+.task-entry-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: #8B4513;
+  font-size: 14px;
+}
+
+.task-entry-right {
+  display: flex;
+  gap: 8px;
+}
+
+.related-task-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.related-task-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid #F0E6D6;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.related-task-item:hover {
+  background: #FFF5E6;
+  border-color: #D4A574;
+}
+
+.rt-title {
+  flex: 1;
+  font-size: 13px;
+  color: #5D4E3A;
 }
 </style>
